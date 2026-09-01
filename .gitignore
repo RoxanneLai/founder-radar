@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+/codex-tmp/
+
+# supabase local state
+/supabase/.branches/
+/supabase/.temp/
 
 # next.js
 /.next/

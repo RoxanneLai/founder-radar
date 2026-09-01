@@ -1,5 +1,7 @@
 # FounderRadar V0 — from zero to your first dashboard
 
+> **Historical snapshot:** This guide records the original browser-based ChatGPT handoff for creating V0 from an empty folder. V0 is complete, the repository has moved to V1, and version numbers and setup details below may be stale. Use the root `README.md` and the checked-in source as the current authority.
+
 ## What we are building
 
 One polished homepage showing six fictional NYC startup events ranked by networking score. No Supabase, LLM, discovery integration, authentication, or automation. The goal is to validate the product’s information hierarchy: is this event worth my time, why, and what is the tradeoff?

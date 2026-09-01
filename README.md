@@ -2,85 +2,104 @@
 
 **Don’t show me every startup event. Show me the ones worth attending.**
 
-FounderRadar explores how an AI event scout could turn fragmented NYC startup listings into a short, explainable list of rooms worth being in.
+FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: V0
+## Current milestone: V1 data foundation
 
-A static product prototype with six **fictional** NYC startup events. Includes deterministic networking-score ranking, category tags, founder/investor/networking scores, sample registration urgency, recommendation explanations, optional downsides, source labels, prices, venues, and New York time formatting.
+V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 adds the local Postgres foundation that a future discovery agent will write to.
 
-**Not implemented:** real discovery, model calls, database storage, deduplication, personalization, authentication, save/dismiss, email, or scheduled jobs. No keys or accounts are needed for V0. Scores, availability, hosts, venues, and event details are illustrative, not verified claims. Dates are fixed at September 1–6, 2026; this is a sample edition, not a rolling live feed.
+The browser at `http://localhost:3000` still renders the V0 fixtures from `lib/mock-events.ts`. The database schema and seed data are intentionally being established before the UI is connected to Supabase.
 
-## Start here
+See [the V1 plan](docs/V1-PLAN.md) for the data flow, schema decisions, completion criteria, and the next agent-focused increment.
 
-See [the complete V0 walkthrough](docs/V0-WALKTHROUGH.md) for setup from an empty folder, exact file changes, commands, verification, and the first meaningful commit. See [complete application source](docs/V0-COMPLETE-CODE.md) for full copyable file contents.
+## Run the web application
 
-### Run this source
-
-Use Node.js 24 LTS (the project requires Node >=22.13 for its Node-based TypeScript tests), npm, and Git.
+Use Node.js 24 LTS and npm.
 
 ```bash
 npm ci
-npm run dev:next
+npm run dev
 ```
 
-Open http://localhost:3000. Both the Work checkout and the portable download include a lockfile; use `npm ci` to install the locked dependencies.
+Open http://localhost:3000.
+
+## Run the local database
+
+Local Supabase requires a Docker-compatible container runtime. Start Docker Desktop, OrbStack, Rancher Desktop, or Podman before running these commands.
+
+```bash
+npm run db:start
+npm run db:reset
+npm run db:test
+npm run db:lint
+```
+
+Supabase Studio runs at http://localhost:54323. Stop the local stack with `npm run db:stop`.
+
+`db:reset` deletes this project's local database contents and replays migrations plus fictional seed data. Back up any live data you want to keep before resetting. These scripts do not reset or deploy a hosted Supabase project. The local stack is for development only; do not expose it publicly.
+
+The database is reproducible from committed files:
+
+| Path                       | Responsibility                                          |
+| -------------------------- | ------------------------------------------------------- |
+| `supabase/config.toml`     | Local service and database configuration                |
+| `supabase/migrations/`     | Versioned database schema                               |
+| `supabase/seed.sql`        | Six deterministic fictional events and their provenance |
+| `supabase/tests/database/` | pgTAP database contract tests                           |
+
+Never commit hosted Supabase credentials, service-role keys, downloaded live data, or `.env` files.
+
+## Data flow
+
+The schema is designed for discovery before normalization:
+
+1. A discovery agent creates a `search_runs` record.
+2. Each fetched listing is upserted into `event_sources` with its URL, provider identity, fetched content, and raw payload.
+3. A source may remain unlinked while extraction is incomplete.
+4. Normalized sources are linked to canonical `events` records.
+5. Only events explicitly marked `published` are readable through the public application role.
+
+This preserves the latest source snapshot and its original discovery-run attribution. It does not yet retain every historical fetch; append-only observations can be added when needed. Raw source records and search-run diagnostics are not publicly readable. Seeded events carry `is_fixture = true`, so a future live feed can explicitly exclude them.
+
+## Application architecture
+
+| File                       | Responsibility                                            |
+| -------------------------- | --------------------------------------------------------- |
+| `lib/types.ts`             | Current V0 UI event contract                              |
+| `lib/mock-events.ts`       | Fictional fixtures used by the current page               |
+| `lib/events.ts`            | Deterministic ranking, score bands, and formatting        |
+| `components/EventCard.tsx` | Event presentation                                        |
+| `app/page.tsx`             | Current server-rendered shortlist                         |
+| `supabase/`                | V1 persistence, provenance, seed data, and database tests |
+
+The current UI remains a static prototype until a later V1 increment introduces a server-side repository and generated database types.
+
+## Verification
 
 ```bash
 npm run lint
 npm run typecheck
 npm run test:unit
-npm run build:next
+npm run build
 npm run test:next
-npm run start:next
 ```
 
-The final command serves the production Next.js build at http://localhost:3000. Stop the development server first so the port is free.
+`test:next` reads the production output, so run `build` first. Database checks require the local Supabase stack.
 
-## Architecture
+## Roadmap
 
-| File                        | Responsibility                                                        |
-| --------------------------- | --------------------------------------------------------------------- |
-| `lib/types.ts`              | The typed `StartupEvent` contract and constrained categories/statuses |
-| `lib/mock-events.ts`        | Explicitly fictional fixtures; intentionally not pre-sorted           |
-| `lib/events.ts`             | Pure deterministic sorting, score bands, date and price formatting    |
-| `components/ScoreBadge.tsx` | Reusable labeled score presentation                                   |
-| `components/EventCard.tsx`  | A single event, recommendation, tradeoff, and details                 |
-| `app/page.tsx`              | Composes and ranks the shortlist; derives summary counts              |
-| `app/layout.tsx`            | Page metadata, root layout, and global styles                         |
-| `app/globals.css`           | Tailwind and responsive FounderRadar visual design                    |
-| `tests/events.test.mjs`     | Ranking, date, currency, and fixture-contract checks                  |
-| `tests/next-html.test.mjs`  | Checks the HTML emitted by the standard Next.js build                 |
+The next product priority is a small, manually triggered live-data agent: one provider, a bounded search, and real listings persisted with provenance. The original version labels below describe feature areas, not a requirement to finish AI scoring before fetching real events.
 
-The homepage and cards are server components. V0 needs no client state, provider adapters, or API routes. Readonly fixtures discourage mutation; ranking returns a new array. Ties sort by start time, then ID. Scores are independent hand-authored signals, **not an average** and not model output. Fixed date offsets plus `America/New_York` formatting avoid changing displayed times with the viewer’s location. No real registration links are attached to fictional events.
+| Version | Scope                                                                       |
+| ------- | --------------------------------------------------------------------------- |
+| V0      | Completed static product prototype with fictional fixtures                  |
+| V1      | Supabase/Postgres persistence, provenance, and UI data access               |
+| V2      | Structured scoring and explanations                                         |
+| V3      | Structured extraction from messy page content                               |
+| V4      | Swappable discovery adapters and search providers                           |
+| V5      | Deterministic deduplication; semantic comparison only for uncertain matches |
+| V6      | Scheduled discovery pipeline and digest generation                          |
+| V7      | Personal preferences and recommendation relevance                           |
+| V8      | Feedback, evaluation data, regression tests, and product metrics            |
 
-This is a single-user product prototype, not a user-specific recommendation system. Do not describe V0 as an operational AI pipeline in a portfolio.
-
-## Work hosting vs. standard Next.js
-
-The Work checkout retains its Vinext/Cloudflare hosting starter and build scripts. `npm run dev` and `npm run build` in that checkout are Work hosting commands. `dev:next`, `build:next`, and `start:next` use **actual Next.js** with the same app code. The portable ZIP uses standard Next.js for its default commands and omits Work infrastructure and unused UI catalog code.
-
-`tsconfig.json` checks app, components, hooks, and library source; it does not treat hosting-only Worker/D1 examples as Next.js application modules. Work build validation handles the hosting bundle. No D1 or Supabase binding is enabled or used by V0. The `vendor/` CSS file and `tw-animate-css` import come from the Work starter and are retained so the exact same stylesheet is portable; they add no product features.
-
-For a later Vercel deployment of the Work checkout, select the Next.js preset, set build command to `npm run build:next`, and use `.next` as the Next.js output. The portable source uses normal Next.js defaults. No Vercel deployment has been performed in this phase.
-
-## Quality checks
-
-- Unit tests cover nonmutating ranking, deterministic ties, IDs and score ranges, free/paid prices, and New York daylight saving time.
-- Shared HTML assertions verify card count and order, metadata, urgency states, optional downsides, mock labeling, and absence of real registration links.
-- CI runs lint, application type checking, unit tests, a standard Next.js build, and the Next.js HTML check.
-- Responsive breakpoints, readable score labels, semantic headings, and a keyboard skip link are implemented. Browser-based visual/accessibility testing is a separate manual acceptance step; do not equate HTML checks with a browser audit.
-
-## Roadmap — future work, not implemented
-
-| Version | Scope                                                                          |
-| ------- | ------------------------------------------------------------------------------ |
-| V1      | Supabase/Postgres: canonical `events`, separate `event_sources`, `search_runs` |
-| V2      | Structured LLM scoring and explanations                                        |
-| V3      | Structured extraction from messy page content                                  |
-| V4      | Swappable discovery adapters and search providers                              |
-| V5      | Deterministic deduplication; LLM comparison only for uncertain matches         |
-| V6      | Daily discovery pipeline and digest generation                                 |
-| V7      | Personal preferences and recommendation relevance                              |
-| V8      | Feedback, evaluation data, prompt regression tests, and product metrics        |
-
-Use deterministic software for deterministic problems and LLMs for semantic problems. Prompts will live in separate files when those phases begin. **Stop at V0 until it works and the product experience is accepted.**
+The original [V0 walkthrough](docs/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/V0-COMPLETE-CODE.md) are retained only as historical records of the browser-based ChatGPT development phase. They are not current setup instructions or authoritative copies of the code.
