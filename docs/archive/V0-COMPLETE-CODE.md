@@ -1,6 +1,6 @@
 # FounderRadar V0 — complete source
 
-> **Historical snapshot:** This is a copy of the source as delivered during the original browser-based ChatGPT V0 handoff. It is intentionally not updated with later dependency, documentation, or V1 changes. Do not copy it over the current repository.
+> **Historical snapshot:** This is a copy of the source as delivered during the original browser-based ChatGPT V0 handoff. It is intentionally not updated with later dependency, documentation, or V1 changes. Commands and paths below may no longer exist. Use the [current README](../../README.md), [V1 plan](../V1-PLAN.md), and checked-in source instead. Do not copy this snapshot over the current repository.
 
 All application and local setup files are included below in full. This package uses standard Next.js; Work hosting infrastructure is intentionally omitted. Follow `V0-WALKTHROUGH.md` in order. No API keys are required.
 

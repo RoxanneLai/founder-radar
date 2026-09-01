@@ -25,18 +25,15 @@ Open http://localhost:3000.
 
 ## Run the local database
 
-Local Supabase requires a Docker-compatible container runtime. Start Docker Desktop, OrbStack, Rancher Desktop, or Podman before running these commands.
+Local Supabase requires a Docker-compatible container runtime. Start your runtime (Docker Desktop has been verified for this project), then start the local stack:
 
 ```bash
 npm run db:start
-npm run db:reset
-npm run db:test
-npm run db:lint
 ```
 
 Supabase Studio runs at http://localhost:54323. Stop the local stack with `npm run db:stop`.
 
-`db:reset` deletes this project's local database contents and replays migrations plus fictional seed data. Back up any live data you want to keep before resetting. These scripts do not reset or deploy a hosted Supabase project. The local stack is for development only; do not expose it publicly.
+Use `db:start` for ordinary startup; resetting the database is not part of the daily workflow. These scripts operate on the local stack, which is for development only and must not be exposed publicly.
 
 The database is reproducible from committed files:
 
@@ -48,6 +45,16 @@ The database is reproducible from committed files:
 | `supabase/tests/database/` | pgTAP database contract tests                           |
 
 Never commit hosted Supabase credentials, service-role keys, downloaded live data, or `.env` files.
+
+### Optional: rebuild the local fixture database
+
+**Destructive:** `db:reset` deletes this project's local database contents, including any live listings you have collected, and replays migrations plus fictional seed data. Back up data you want to keep first. Run this only when you deliberately want a fresh fixture database:
+
+```bash
+npm run db:reset
+```
+
+This command does not reset or deploy a hosted Supabase project.
 
 ## Data flow
 
@@ -86,20 +93,24 @@ npm run test:next
 
 `test:next` reads the production output, so run `build` first. Database checks require the local Supabase stack.
 
+```bash
+npm run db:test
+npm run db:lint
+```
+
+The database contract tests currently expect the six fictional seed events. Use a disposable fixture database for those tests once you start collecting live data; do not reset a database containing data you want to keep just to run them. See the [V1 verification notes](docs/V1-PLAN.md#verification-status--september-1-2026) for the remaining command-path checks and local execution limitations.
+
 ## Roadmap
 
-The next product priority is a small, manually triggered live-data agent: one provider, a bounded search, and real listings persisted with provenance. The original version labels below describe feature areas, not a requirement to finish AI scoring before fetching real events.
+| Status    | Scope                                                                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Completed | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                          |
+| Next      | One manually triggered live-data agent: a bounded search of one agreed provider, source evidence, and repeat-safe ingestion     |
+| Next      | Connect the dashboard to persisted events, clearly separate fixtures from live listings, and support unknown or unscored fields |
+| Later     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation               |
 
-| Version | Scope                                                                       |
-| ------- | --------------------------------------------------------------------------- |
-| V0      | Completed static product prototype with fictional fixtures                  |
-| V1      | Supabase/Postgres persistence, provenance, and UI data access               |
-| V2      | Structured scoring and explanations                                         |
-| V3      | Structured extraction from messy page content                               |
-| V4      | Swappable discovery adapters and search providers                           |
-| V5      | Deterministic deduplication; semantic comparison only for uncertain matches |
-| V6      | Scheduled discovery pipeline and digest generation                          |
-| V7      | Personal preferences and recommendation relevance                           |
-| V8      | Feedback, evaluation data, regression tests, and product metrics            |
+The database foundation is implemented; the full V1 application milestone is not complete until the UI reads from Postgres. Real event collection does not depend on finishing AI scoring first.
 
-The original [V0 walkthrough](docs/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/V0-COMPLETE-CODE.md) are retained only as historical records of the browser-based ChatGPT development phase. They are not current setup instructions or authoritative copies of the code.
+## Historical development records
+
+The original [V0 walkthrough](docs/archive/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/archive/V0-COMPLETE-CODE.md) are archived records of the browser-based ChatGPT development phase. Their contents are intentionally preserved, including obsolete commands and setup details. Use this README and the actual source files for current development. The formatter skips `docs/archive/` to avoid rewriting those snapshots.

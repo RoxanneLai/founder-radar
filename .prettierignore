@@ -1,0 +1,3 @@
+# Preserve historical source snapshots and skip local scratch artifacts.
+docs/archive/
+codex-tmp/

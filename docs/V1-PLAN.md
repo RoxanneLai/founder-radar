@@ -2,7 +2,7 @@
 
 ## Outcome
 
-V1 establishes a reproducible database and a server-side data boundary for FounderRadar. It is complete when a fresh local Supabase instance can be created from versioned migrations and the existing dashboard can render seeded events from Postgres.
+V1 establishes a reproducible database and a server-side data boundary for FounderRadar. The database foundation is implemented. The full V1 application milestone is complete when a fresh local Supabase instance can be created from versioned migrations and the existing dashboard can render events from Postgres, with fictional fixtures clearly distinguished from live listings.
 
 The first V1 increment in this repository covers the database foundation. The user's next priority is a live-data agent. The proposed next increment pairs the ingestion boundary with one manually triggered provider adapter; connecting the UI can then expose that real data.
 
@@ -34,7 +34,7 @@ search_runs -> event_sources -> events -> published application data
 ## Foundation completion criteria
 
 - `npm run db:start` starts the local Supabase stack.
-- `npm run db:reset` recreates the database from migrations and seed data.
+- On a disposable local database, `npm run db:reset` recreates the database from migrations and seed data. Do not reset a database containing live data you want to keep.
 - `npm run db:test` passes the pgTAP contract tests.
 - `npm run db:lint` reports no database errors.
 - Six published fixture events, six linked source records, and one completed fixture search run exist after reset.
@@ -47,8 +47,15 @@ search_runs -> event_sources -> events -> published application data
 - The regular local Supabase stack was started from the user's host Terminal; migration `20260901160000` and all six seed events were confirmed there.
 - All 47 pgTAP assertions passed in both databases using `docker exec` and `psql`; each test runs in a transaction and rolls back.
 - Application lint, TypeScript, and all six existing unit tests passed.
-- The agent's shell can reach the Docker socket but cannot reach the host's published Postgres port. The standard `db:reset`, `db:test`, and `db:lint` command path still needs a host-Terminal verification pass.
+- Docker socket access and a connection to the published Postgres port through the allowed network proxy were verified. Direct database connections from the agent's shell remain blocked; the standard `db:reset`, `db:test`, and `db:lint` command path still needs a host-Terminal verification pass. Database contract tests can run through Docker without changing network permissions.
 - The user confirmed that the production build passes in the host Terminal, and the production HTML test subsequently passed against that output. The agent's build attempt was blocked by `EPERM` during cleanup of `.next/diagnostics`, including on an elevated attempt. Application source was not changed by this database milestone.
+
+### Subsequent repository cleanup
+
+- The V0 guides were moved into `docs/archive/`; their original bodies were preserved. Unused starter assets, duplicate commands, obsolete lint exceptions, and unused styling dependencies were removed.
+- Lint, TypeScript, all six unit tests, formatting, dependency-lock consistency, and local documentation links passed after cleanup. The running development server also passed the dashboard HTML assertions.
+- Browser comparisons at 1280×720 and 390×844 found no changes to the measured layout or computed styles of the dashboard's 584 elements, with no horizontal overflow or browser warnings/errors.
+- The user confirmed that both `npm run build` and `npm run test:next` passed in the host Terminal after cleanup, completing production verification. The agent's normal and approved elevated build attempts remained blocked by the `.next/diagnostics` permission error.
 
 ## Next increment: one live-data agent
 
@@ -65,11 +72,10 @@ Provider adapters should return one shared discovery result shape and should not
 
 Start with one agreed public source, a short NYC date range, and a small result limit. Persist real URLs and fetch timestamps, keep missing fields and uncomputed scores unknown, and keep incomplete events as drafts. Treat page content as untrusted data, restrict fetch targets and redirects, and bound requests, retries, and any model cost. Scheduling, multi-provider discovery, and semantic deduplication are not prerequisites for this first live-data slice.
 
-## Deferred work
+## Later work
 
-- Connecting `app/page.tsx` to Supabase
 - Hosted Supabase project creation and deployment
-- Provider selection and internet discovery
-- Structured extraction and scoring
+- Additional discovery providers and richer extraction
+- Structured scoring and explanations
 - Deduplication across providers
 - Authentication, personalization, notifications, and scheduling
