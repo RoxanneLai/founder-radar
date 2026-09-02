@@ -6,6 +6,7 @@ import {
 } from "../../lib/ingestion/openrouter-provider.ts";
 import { runIngestion } from "../../lib/ingestion/run.ts";
 import { selectSources } from "../../lib/ingestion/sources.ts";
+import { IngestionError } from "../../lib/ingestion/errors.ts";
 import {
   candidate,
   memoryRepository,
@@ -134,6 +135,14 @@ test("OpenRouter sends bounded agentic search and tool-free structured extractio
   assert.ok(!JSON.stringify(research.metadata).includes("untrusted snippet"));
   await assert.rejects(provider.research(options, signal), /api_call_limit/);
   assert.equal(requests.length, 2);
+  assert.equal(provider.getDiagnostics().length, 2);
+  assert.deepEqual(
+    provider.getDiagnostics().map((item) => item.phase),
+    ["research", "extraction"],
+  );
+  const copy = provider.getDiagnostics();
+  copy[0].usage.cost = 9000;
+  assert.equal(provider.getDiagnostics()[0].usage.cost, 0.001);
 });
 
 test("credit, rate, authentication and provider errors stop without retries or raw error leaks", async () => {
@@ -171,7 +180,7 @@ test("incomplete, refused, malformed, missing-search and over-budget responses f
     [incomplete, /provider_incomplete/],
     [refused, /provider_refused/],
     [response(report), /search_not_performed/],
-    [missingUsage, /search_not_performed/],
+    [missingUsage, /search_usage_missing/],
     [response(report, 4), /search_tool_limit_exceeded/],
     [tools, /provider_incomplete/],
     [{ choices: [] }, /invalid_provider_response/],
@@ -232,6 +241,7 @@ test("cancellation and network failures never retry or expose transport details"
     /run_cancelled/,
   );
   assert.equal(requests.length, 0);
+  assert.deepEqual(provider.getDiagnostics(), []);
   const active = new AbortController();
   const cancelled = new OpenRouterSearchProvider(
     key,
@@ -337,4 +347,248 @@ test("missing extraction usage stays unknown rather than inventing zero cost", a
   );
   assert.equal(extracted.metadata.usage, null);
   assert.equal(extracted.metadata.search_tool_calls, null);
+});
+
+test("missing search usage preserves safe diagnostics in failed runs and progress files", async () => {
+  for (const missing of ["usage", "tool_usage", "counter", "null_counter"]) {
+    const value = response(report, 1);
+    if (missing === "usage") delete value.usage;
+    if (missing === "tool_usage") delete value.usage.server_tool_use;
+    if (missing === "counter")
+      delete value.usage.server_tool_use.web_search_requests;
+    if (missing === "null_counter")
+      value.usage.server_tool_use.web_search_requests = null;
+    const { provider, requests } = providerWithResponses([value]);
+    const repository = memoryRepository();
+    const progress = [];
+    const summary = await runIngestion(options, {
+      provider,
+      repository,
+      signal,
+      onProgress: async (snapshot) => progress.push(snapshot),
+    });
+    assert.equal(summary.status, "failed");
+    assert.deepEqual(summary.errors, ["search_usage_missing"]);
+    assert.equal(requests.length, 1);
+    assert.equal(repository.events.size, 0);
+    assert.equal(repository.sources.size, 0);
+    const [diagnostic] = summary.provider_diagnostics;
+    assert.equal(diagnostic.response_id, "gen-offline-test");
+    assert.equal(diagnostic.model, "openai/gpt-4.1");
+    assert.equal(diagnostic.http_status, 200);
+    assert.equal(diagnostic.finish_reason, "stop");
+    assert.equal(diagnostic.search_usage, "missing");
+    assert.equal(diagnostic.search_tool_calls, null);
+    assert.equal(diagnostic.citation_count, 1);
+    assert.equal(diagnostic.content_characters, report.length);
+    assert.equal(diagnostic.usage.cost, missing === "usage" ? null : 0.001);
+    assert.equal(
+      diagnostic.usage.input_tokens,
+      missing === "usage" ? null : 10,
+    );
+    assert.deepEqual(
+      progress.at(-1).provider_diagnostics,
+      summary.provider_diagnostics,
+    );
+    assert.deepEqual(
+      repository.runs[0].metadata.summary.provider_diagnostics,
+      summary.provider_diagnostics,
+    );
+    assert.ok(
+      !JSON.stringify([summary, progress, repository.runs]).includes(report),
+    );
+    assert.ok(!JSON.stringify(summary).includes(key));
+  }
+});
+
+test("zero and invalid search counters stay distinct without authorizing ingestion", async () => {
+  for (const [searches, expected, state] of [
+    [0, "search_not_performed", "reported"],
+    [-1, "invalid_provider_response", "invalid"],
+    ["1", "invalid_provider_response", "invalid"],
+    [0.5, "invalid_provider_response", "invalid"],
+    [4, "search_tool_limit_exceeded", "reported"],
+  ]) {
+    const { provider, requests } = providerWithResponses([
+      response(report, searches),
+    ]);
+    const repository = memoryRepository();
+    const summary = await runIngestion(options, {
+      provider,
+      repository,
+      signal,
+    });
+    assert.deepEqual(summary.errors, [expected]);
+    assert.equal(summary.provider_diagnostics[0].search_usage, state);
+    assert.equal(
+      summary.provider_diagnostics[0].search_tool_calls,
+      state === "reported" ? searches : null,
+    );
+    assert.equal(summary.provider_diagnostics[0].usage.cost, 0.001);
+    assert.equal(repository.events.size, 0);
+    assert.equal(requests.length, 1);
+  }
+});
+
+test("rejected completed responses retain usage even when their structure or content fails validation", async () => {
+  const incomplete = response(report, 1);
+  incomplete.choices[0].finish_reason = "length";
+  const malformed = response(report, 1);
+  malformed.choices = [];
+  const refused = response(report, 1);
+  refused.choices[0].message.refusal = key;
+  for (const value of [incomplete, malformed, refused, response("", 1)]) {
+    const { provider } = providerWithResponses([value]);
+    await assert.rejects(provider.research(options, signal));
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.response_id, "gen-offline-test");
+    assert.equal(diagnostic.usage.cost, 0.001);
+    assert.equal(diagnostic.search_tool_calls, 1);
+    assert.ok(!JSON.stringify(diagnostic).includes(key));
+    assert.ok(!JSON.stringify(diagnostic).includes(report));
+  }
+});
+
+test("failed extraction and finalization preserve both requests in the recovery checkpoint", async () => {
+  for (const failFinish of [false, true]) {
+    const research = response(report, 1);
+    const extraction = response("bad JSON " + key);
+    extraction.id = "gen-extraction";
+    extraction.usage.cost = 0.002;
+    const { provider, requests } = providerWithResponses([
+      research,
+      extraction,
+    ]);
+    const repository = memoryRepository();
+    if (failFinish)
+      repository.finish = async () => {
+        throw new IngestionError("run_finish_failed");
+      };
+    const progress = [];
+    const running = runIngestion(options, {
+      provider,
+      repository,
+      signal,
+      onProgress: async (snapshot) => progress.push(snapshot),
+    });
+    if (failFinish) await assert.rejects(running, /run_finish_failed/);
+    else assert.equal((await running).status, "partial");
+    const snapshot = progress.at(-1);
+    assert.ok(snapshot.errors.includes("invalid_extraction_json"));
+    assert.deepEqual(
+      snapshot.provider_diagnostics.map((item) => item.phase),
+      ["research", "extraction"],
+    );
+    assert.deepEqual(
+      snapshot.provider_diagnostics.map((item) => item.usage.cost),
+      [0.001, 0.002],
+    );
+    assert.equal(
+      snapshot.provider_diagnostics[1].response_id,
+      "gen-extraction",
+    );
+    assert.equal(requests.length, 2);
+    assert.ok(!JSON.stringify(snapshot).includes(key));
+    assert.equal(repository.events.size, 0);
+  }
+});
+
+test("diagnostics allowlist excludes reflected credentials, free text, URLs and invalid numbers", async () => {
+  const value = response(key, 1);
+  value.id = "gen-" + key;
+  value.model = "vendor/" + key;
+  value.choices[0].finish_reason = key;
+  value.usage.cost = -2;
+  value.usage.prompt_tokens = "secret " + key;
+  value.usage.private_details = { secret: key };
+  value.choices[0].message.annotations[0].url_citation.url =
+    "https://example.com/" + key;
+  const { provider } = providerWithResponses([value]);
+  await assert.rejects(
+    provider.research(options, signal),
+    /invalid_provider_response/,
+  );
+  const [diagnostic] = provider.getDiagnostics();
+  assert.equal(diagnostic.response_id, null);
+  assert.equal(diagnostic.model, null);
+  assert.equal(diagnostic.finish_reason, null);
+  assert.equal(diagnostic.usage.cost, null);
+  assert.equal(diagnostic.usage.input_tokens, null);
+  assert.equal(diagnostic.usage.output_tokens, 20);
+  const serialized = JSON.stringify(diagnostic);
+  for (const forbidden of [key, "private_details", "https://", "secret "])
+    assert.ok(!serialized.includes(forbidden));
+});
+
+test("HTTP, JSON and transport failures keep costs unknown and never store raw errors", async () => {
+  for (const [fetcher, status, expected] of [
+    [
+      async () => new Response(key, { status: 402 }),
+      402,
+      "provider_quota_or_rate_limit",
+    ],
+    [
+      async () => new Response(key, { status: 200 }),
+      200,
+      "invalid_provider_response",
+    ],
+    [
+      async () => {
+        throw new Error(key);
+      },
+      null,
+      "provider_request_failed",
+    ],
+  ]) {
+    const provider = new OpenRouterSearchProvider(
+      key,
+      "openai/gpt-4.1",
+      fetcher,
+    );
+    const repository = memoryRepository();
+    const summary = await runIngestion(options, {
+      provider,
+      repository,
+      signal,
+    });
+    assert.deepEqual(summary.errors, [expected]);
+    const [diagnostic] = summary.provider_diagnostics;
+    assert.equal(diagnostic.http_status, status);
+    assert.equal(diagnostic.usage.cost, null);
+    assert.equal(diagnostic.response_id, null);
+    assert.ok(!JSON.stringify(summary).includes(key));
+  }
+});
+
+test("a diagnostics or progress hook failure cannot leave the run open or erase usage", async () => {
+  for (const hook of ["diagnostics", "progress"]) {
+    const { provider } = providerWithResponses([response(report, 0)]);
+    if (hook === "diagnostics")
+      provider.getDiagnostics = () => {
+        throw new Error(key);
+      };
+    const repository = memoryRepository();
+    const summary = await runIngestion(options, {
+      provider,
+      repository,
+      signal,
+      onProgress: async () => {
+        if (hook === "progress") throw new Error(key);
+      },
+    });
+    assert.equal(repository.runs[0].summary.status, "failed");
+    assert.ok(
+      summary.errors.includes(
+        hook === "diagnostics"
+          ? "provider_diagnostics_unavailable"
+          : "progress_write_failed",
+      ),
+    );
+    if (hook === "progress")
+      assert.equal(
+        repository.runs[0].metadata.summary.provider_diagnostics[0].usage.cost,
+        0.001,
+      );
+    assert.ok(!JSON.stringify(repository.runs).includes(key));
+  }
 });

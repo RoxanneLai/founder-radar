@@ -54,6 +54,12 @@ async function reportProgress(
   deps: Dependencies,
 ): Promise<void> {
   try {
+    const diagnostics = deps.provider.getDiagnostics?.();
+    if (diagnostics?.length) summary.provider_diagnostics = diagnostics;
+  } catch {
+    addError(summary, "provider_diagnostics_unavailable");
+  }
+  try {
     await deps.onProgress?.(structuredClone(summary));
   } catch {
     addError(summary, "progress_write_failed");

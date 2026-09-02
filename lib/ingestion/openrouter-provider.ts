@@ -4,6 +4,7 @@ import { extractionSchema } from "./contracts.ts";
 import type {
   DiscoveryProvider,
   Extraction,
+  ProviderDiagnostic,
   Research,
   SearchOptions,
   SourceIdentity,
@@ -23,6 +24,7 @@ import {
   routerMetadata,
 } from "./openrouter-response.ts";
 import type { RouterResponse } from "./openrouter-response.ts";
+import { routerDiagnostic } from "./openrouter-diagnostics.ts";
 
 export const API_LIMITS = {
   calls: 2,
@@ -47,6 +49,7 @@ export function createOpenRouterProvider(
 
 export class OpenRouterSearchProvider implements DiscoveryProvider {
   private calls = 0;
+  private readonly diagnostics: ProviderDiagnostic[] = [];
   private readonly apiKey: string;
   private readonly model: string;
   private readonly fetcher: typeof fetch;
@@ -57,7 +60,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     this.fetcher = fetcher;
   }
 
+  /** Return copies so local progress hooks cannot mutate the recorded diagnostics. */
+  getDiagnostics(): ProviderDiagnostic[] {
+    return structuredClone(this.diagnostics);
+  }
+
   private async request(
+    phase: ProviderDiagnostic["phase"],
     body: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<RouterResponse> {
@@ -65,6 +74,8 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     if (this.calls >= API_LIMITS.calls)
       throw new IngestionError("api_call_limit");
     this.calls += 1;
+    const diagnostic = routerDiagnostic(null, phase, this.model, this.apiKey);
+    this.diagnostics.push(diagnostic);
     const boundedSignal = AbortSignal.any([
       signal,
       AbortSignal.timeout(API_LIMITS.requestTimeoutMs),
@@ -88,11 +99,22 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           }),
         },
       );
+      diagnostic.http_status = response.status;
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
         throw providerHttpError(response.status);
       }
       const value = await readResponseJson(response, API_LIMITS.responseBytes);
+      Object.assign(
+        diagnostic,
+        routerDiagnostic(
+          value,
+          phase,
+          this.model,
+          this.apiKey,
+          response.status,
+        ),
+      );
       if (signal.aborted) throw new IngestionError("run_cancelled");
       if (boundedSignal.aborted)
         throw new IngestionError("provider_request_timeout");
@@ -111,6 +133,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     signal: AbortSignal,
   ): Promise<Research> {
     const response = await this.request(
+      "research",
       {
         messages: [
           { role: "system", content: RESEARCH_INSTRUCTIONS },
@@ -137,7 +160,8 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       signal,
     );
     const searches = response.usage?.server_tool_use?.web_search_requests;
-    if (!searches) throw new IngestionError("search_not_performed");
+    if (searches == null) throw new IngestionError("search_usage_missing");
+    if (searches === 0) throw new IngestionError("search_not_performed");
     if (searches > API_LIMITS.searchToolCalls)
       throw new IngestionError("search_tool_limit_exceeded");
     const message = response.choices[0].message;
@@ -162,6 +186,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     signal: AbortSignal,
   ): Promise<Extraction> {
     const response = await this.request(
+      "extraction",
       {
         messages: [
           { role: "system", content: EXTRACTION_INSTRUCTIONS },

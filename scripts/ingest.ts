@@ -19,6 +19,7 @@ async function saveProgress(summary: RunSummary): Promise<void> {
   await writeFile(
     "codex-tmp/ingestion-" + summary.run_id + ".json",
     JSON.stringify(summary, null, 2) + "\n",
+    { mode: 0o600 },
   );
 }
 

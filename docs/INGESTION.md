@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live API verification has not been performed.** The overnight build is tested with synthetic provider responses and a disposable PostgreSQL database. Finding three real, correctly dated events remains a separately approved acceptance check, not an accomplished result.
+**Live API acceptance has not passed.** The first approved comparison reached OpenRouter but stopped on `search_not_performed` before saving any sources/events or trying the second model. The old diagnostic could mean either missing search usage or an explicit zero. Its response ID and cost were not retained, so the cause and charge cannot be recovered from the local run record. Finding three real, correctly dated events remains an uncompleted acceptance check.
 
 ## What happens in one run
 
@@ -148,7 +148,23 @@ Generated TypeScript types are in `lib/database.types.ts`. They were generated w
 
 ## Inspect and recover
 
-The command prints a safe final JSON summary and saves milestone snapshots to ignored `codex-tmp/ingestion-<run-id>.json`. Snapshots contain counts and diagnostic codes, not credentials or source content. `events_written` counts inserted or refreshed drafts, not necessarily newly created events. `sources_unlinked` counts persisted candidates still lacking an event link.
+The command prints a safe final JSON summary and saves milestone snapshots to ignored `codex-tmp/ingestion-<run-id>.json`, creating new files with owner-only permissions. Snapshots contain counts, diagnostic codes, and allowlisted provider diagnostics, not credentials or source content. `events_written` counts inserted or refreshed drafts, not necessarily newly created events. `sources_unlinked` counts persisted candidates still lacking an event link.
+
+### Safe diagnostics for rejected responses
+
+`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, HTTP status, bounded response ID and model identifiers, known finish reason, token usage and provider-reported cost when available. Citation/tool-call counts and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, or raw errors. Reflected API credentials and key-like identifiers are excluded.
+
+Diagnostics are captured before response validation and included in the final recovery snapshot even when research, extraction, or database finalization fails. A response ID or cost is retained only if actually returned and safely parsed; network errors, non-JSON or oversized responses, and non-success HTTP responses may have no such details. Missing or invalid numbers stay `null`, never zero. These figures are provider reports, not independently verified billing totals.
+
+- `search_usage_missing`: the documented search counter is absent or null; search execution is **unknown**, even if citation annotations are present.
+- `search_not_performed`: the counter explicitly reports zero searches.
+- Invalid counters still fail response validation; diagnostics mark `search_usage` as `invalid` when a malformed counter is present.
+
+None of these cases permits extraction or event creation. Search limits, citations, no-retry behavior, and publication safeguards are unchanged. Inspect diagnostics and account usage before authorizing another paid request. Old failed run records remain unchanged; the added logging cannot reconstruct an earlier discarded response.
+
+The diagnostic fix passed lint, TypeScript, and all 78 offline tests, including missing/zero/invalid search usage, rejected-response cost retention, credential exclusion, and recovery after failed extraction or finalization. No paid retry was performed as part of this fix.
+
+### Run statuses
 
 - `succeeded`: the bounded run completed without recorded errors; it may legitimately find zero events.
 - `partial`: at least one source was saved, but some extraction, validation, or other step failed.
@@ -160,23 +176,25 @@ Only `succeeded` exits with code 0. A killed process, power loss, or database ou
 
 Common codes:
 
-| Code                                                  | Next action                                                                            |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `paid_api_not_enabled`                                | Expected safety gate; approve budget before setting the opt-in                         |
-| `missing_ingestion_environment`                       | Supply the required server-side variables                                              |
-| `invalid_ingestion_config`                            | Check the JSON file and explicit OpenRouter model ID; use `--model` for an override    |
-| `openrouter_key_file_unavailable`                     | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB    |
-| `invalid_openrouter_key_file`                         | Use one bare key, without JSON, quotes or a `Bearer` prefix                            |
-| `provider_authentication_failed`                      | Check the OpenRouter credential locally; never paste it into diagnostics               |
-| `search_not_performed` / `search_tool_limit_exceeded` | Stop and inspect the model/tool compatibility and usage before another paid attempt    |
-| `local_database_required`                             | Use the local stack, not a hosted project                                              |
-| `ingestion_migration_required`                        | Apply the pending local migration                                                      |
-| `ingestion_preflight_failed`                          | Check the local stack, service-role access, and pending migration before any API spend |
-| `provider_quota_or_rate_limit`                        | Stop; inspect API quota/billing/rate limits before another paid run                    |
-| `provider_incomplete` / `provider_request_failed`     | Inspect API usage; do not automatically retry                                          |
-| `incomplete_event` / `candidate_missing`              | Inspect the private source/research report; leave the source unlinked                  |
-| `run_finish_failed`                                   | Use the local checkpoint; the database run may still say running                       |
-| `progress_write_failed`                               | Local recovery-file write failed; inspect the database summary                         |
+| Code                                                  | Next action                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `paid_api_not_enabled`                                | Expected safety gate; approve budget before setting the opt-in                                         |
+| `missing_ingestion_environment`                       | Supply the required server-side variables                                                              |
+| `invalid_ingestion_config`                            | Check the JSON file and explicit OpenRouter model ID; use `--model` for an override                    |
+| `openrouter_key_file_unavailable`                     | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
+| `invalid_openrouter_key_file`                         | Use one bare key, without JSON, quotes or a `Bearer` prefix                                            |
+| `provider_authentication_failed`                      | Check the OpenRouter credential locally; never paste it into diagnostics                               |
+| `search_usage_missing`                                | Search execution is unknown; inspect safe diagnostics and account usage before another paid attempt    |
+| `search_not_performed` / `search_tool_limit_exceeded` | Zero or excessive searches were reported; inspect model/tool compatibility before another paid attempt |
+| `provider_diagnostics_unavailable`                    | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
+| `local_database_required`                             | Use the local stack, not a hosted project                                                              |
+| `ingestion_migration_required`                        | Apply the pending local migration                                                                      |
+| `ingestion_preflight_failed`                          | Check the local stack, service-role access, and pending migration before any API spend                 |
+| `provider_quota_or_rate_limit`                        | Stop; inspect API quota/billing/rate limits before another paid run                                    |
+| `provider_incomplete` / `provider_request_failed`     | Inspect API usage; do not automatically retry                                                          |
+| `incomplete_event` / `candidate_missing`              | Inspect the private source/research report; leave the source unlinked                                  |
+| `run_finish_failed`                                   | Use the local checkpoint; the database run may still say running                                       |
+| `progress_write_failed`                               | Local recovery-file write failed; inspect the database summary                                         |
 
 ## Live acceptance gate still pending
 

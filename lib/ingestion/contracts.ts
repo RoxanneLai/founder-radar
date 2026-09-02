@@ -91,7 +91,28 @@ export type Extraction = {
   metadata: Json;
 };
 
+export type ProviderDiagnostic = {
+  phase: "research" | "extraction";
+  requested_model: string | null;
+  response_id: string | null;
+  model: string | null;
+  http_status: number | null;
+  finish_reason: string | null;
+  search_usage: "missing" | "invalid" | "reported";
+  search_tool_calls: number | null;
+  citation_count: number | null;
+  tool_call_count: number | null;
+  content_characters: number | null;
+  usage: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    cost: number | null;
+  };
+};
+
 export interface DiscoveryProvider {
+  getDiagnostics?(): ProviderDiagnostic[];
   research(options: SearchOptions, signal: AbortSignal): Promise<Research>;
   extract(
     research: Research,
@@ -123,6 +144,7 @@ export type RunSummary = {
   events_written: number;
   sources_unlinked: number;
   errors: string[];
+  provider_diagnostics?: ProviderDiagnostic[];
 };
 
 export interface IngestionRepository {
