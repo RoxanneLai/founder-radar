@@ -4,13 +4,21 @@
 
 FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: V1 data foundation
+## Current milestone: V1 ingestion implementation
 
-V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 adds the local Postgres foundation that a future discovery agent will write to.
+V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation and a bounded, manually triggered ingestion agent. The agent implementation is tested offline; paid live-data verification is still pending.
 
 The browser at `http://localhost:3000` still renders the V0 fixtures from `lib/mock-events.ts`. The database schema and seed data are intentionally being established before the UI is connected to Supabase.
 
-See [the V1 plan](docs/V1-PLAN.md) for the data flow, schema decisions, completion criteria, and the next agent-focused increment.
+See [the ingestion guide](docs/INGESTION.md) for safe startup, limits, and the live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone, and [build progress](docs/INGESTION-PROGRESS.md) records the overnight handoff.
+
+### Preview an ingestion run without spending money
+
+```bash
+npm run ingest -- --limit 3
+```
+
+After installing dependencies, this prints a plan only: no API requests and no database writes. Live mode requires explicit opt-in, server-side credentials, an API model choice, and a separately approved testing budget. See the ingestion guide before enabling it.
 
 ## Run the web application
 
@@ -34,6 +42,8 @@ npm run db:start
 Supabase Studio runs at http://localhost:54323. Stop the local stack with `npm run db:stop`.
 
 Use `db:start` for ordinary startup; resetting the database is not part of the daily workflow. These scripts operate on the local stack, which is for development only and must not be exposed publicly.
+
+To apply newly added migrations without resetting existing data, run `npm run db:migrate`.
 
 The database is reproducible from committed files:
 
@@ -79,14 +89,14 @@ This preserves the latest source snapshot and its original discovery-run attribu
 | `app/page.tsx`             | Current server-rendered shortlist                         |
 | `supabase/`                | V1 persistence, provenance, seed data, and database tests |
 
-The current UI remains a static prototype until a later V1 increment introduces a server-side repository and generated database types.
+The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. The current UI remains a static prototype until a later increment connects it to persisted events.
 
 ## Verification
 
 ```bash
 npm run lint
 npm run typecheck
-npm run test:unit
+npm test
 npm run build
 npm run test:next
 ```
@@ -98,16 +108,17 @@ npm run db:test
 npm run db:lint
 ```
 
-The database contract tests currently expect the six fictional seed events. Use a disposable fixture database for those tests once you start collecting live data; do not reset a database containing data you want to keep just to run them. See the [V1 verification notes](docs/V1-PLAN.md#verification-status--september-1-2026) for the remaining command-path checks and local execution limitations.
+The database contract tests expect the fictional seed events. Prefer `npm run db:test:isolated`: it creates a disposable database inside the local Supabase Docker container, applies migrations and seeds, runs the contracts and a concurrency test, and removes only that disposable database. Do not reset a database containing data you want to keep just to run tests. See the [build checkpoint](docs/INGESTION-PROGRESS.md) for current verification and local installation limitations.
 
 ## Roadmap
 
-| Status    | Scope                                                                                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Completed | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                          |
-| Next      | One manually triggered live-data agent: a bounded search of one agreed provider, source evidence, and repeat-safe ingestion     |
-| Next      | Connect the dashboard to persisted events, clearly separate fixtures from live listings, and support unknown or unscored fields |
-| Later     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation               |
+| Status                    | Scope                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                          |
+| Built; live check pending | Manually triggered OpenAI web-search ingestion, source evidence, draft-only atomic persistence, and offline/database tests      |
+| Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                     |
+| Next                      | Connect the dashboard to persisted events, clearly separate fixtures from live listings, and support unknown or unscored fields |
+| Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation               |
 
 The database foundation is implemented; the full V1 application milestone is not complete until the UI reads from Postgres. Real event collection does not depend on finishing AI scoring first.
 

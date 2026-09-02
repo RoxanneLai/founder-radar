@@ -4,7 +4,7 @@
 
 V1 establishes a reproducible database and a server-side data boundary for FounderRadar. The database foundation is implemented. The full V1 application milestone is complete when a fresh local Supabase instance can be created from versioned migrations and the existing dashboard can render events from Postgres, with fictional fixtures clearly distinguished from live listings.
 
-The first V1 increment in this repository covers the database foundation. The user's next priority is a live-data agent. The proposed next increment pairs the ingestion boundary with one manually triggered provider adapter; connecting the UI can then expose that real data.
+The database foundation and first ingestion implementation are now present. The ingestion boundary pairs with one manually triggered OpenAI web-search adapter. Offline verification is complete only as recorded in the [build checkpoint](INGESTION-PROGRESS.md); live API validation and UI integration are separate remaining gates.
 
 ## Why provenance comes first
 
@@ -57,9 +57,9 @@ search_runs -> event_sources -> events -> published application data
 - Browser comparisons at 1280×720 and 390×844 found no changes to the measured layout or computed styles of the dashboard's 584 elements, with no horizontal overflow or browser warnings/errors.
 - The user confirmed that both `npm run build` and `npm run test:next` passed in the host Terminal after cleanup, completing production verification. The agent's normal and approved elevated build attempts remained blocked by the `.next/diagnostics` permission error.
 
-## Next increment: one live-data agent
+## Current increment: one live-data agent
 
-Build a small server-side ingestion module alongside the first provider adapter, with operations for:
+The server-side ingestion module now implements the first provider adapter, with operations for:
 
 1. starting and completing a search run;
 2. upserting a source by provider URL or external ID;
@@ -70,7 +70,15 @@ Build a small server-side ingestion module alongside the first provider adapter,
 
 Provider adapters should return one shared discovery result shape and should not write SQL directly. That boundary will let the first internet agent evolve without coupling the database to a particular search service.
 
-Start with one agreed public source, a short NYC date range, and a small result limit. Persist real URLs and fetch timestamps, keep missing fields and uncomputed scores unknown, and keep incomplete events as drafts. Treat page content as untrusted data, restrict fetch targets and redirects, and bound requests, retries, and any model cost. Scheduling, multi-provider discovery, and semantic deduplication are not prerequisites for this first live-data slice.
+The first discovery provider is OpenAI hosted web search, restricted to individual listing URLs on Luma, Meetup, and Eventbrite. Search reports are explicitly labeled model-generated evidence, not independently downloaded page content. A second tool-free structured-output request extracts facts and quotes. Unknown core fields leave a source unlinked; optional fields and uncomputed scores remain unknown; all usable events remain drafts.
+
+The manual command defaults to a no-network plan. Live mode requires two explicit opt-ins, an explicit model and server-side credentials, and a local-only database URL. Work is bounded to two model requests, three search-tool calls, a short date window, and at most ten candidates, with no automatic API retries. These are request bounds, not a dollar-exact budget.
+
+The new transactional RPC preserves source identity, successful evidence after failures, original discovery attribution, and reviewed/published events. The implementation does not yet independently verify semantic truth, deduplicate the same event across platforms, or connect the dashboard. See [the ingestion guide](INGESTION.md) for limits, evidence semantics, verification, and recovery.
+
+### Next acceptance gate: a paid live smoke test
+
+After approval of a separate API testing budget, run the command against a current date window and manually verify three real NYC events and their source evidence. Rerun the same window to verify stable source identities and inspect actual usage before expanding the search. This live gate was deliberately excluded from the overnight build and has not been claimed complete.
 
 ## Later work
 
