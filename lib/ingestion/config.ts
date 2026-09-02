@@ -2,8 +2,6 @@ import "server-only";
 import { IngestionError } from "./errors.ts";
 
 export type IngestionConfig = {
-  apiKey: string;
-  model: string;
   supabaseUrl: string;
   serviceRoleKey: string;
 };
@@ -12,11 +10,9 @@ export type IngestionConfig = {
 export function readIngestionConfig(env: NodeJS.ProcessEnv): IngestionConfig {
   if (env.FOUNDER_RADAR_ALLOW_PAID_API !== "1")
     throw new IngestionError("paid_api_not_enabled");
-  const apiKey = env.OPENAI_API_KEY?.trim();
-  const model = env.OPENAI_MODEL?.trim();
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   const supabaseUrl = env.SUPABASE_URL?.trim();
-  if (!apiKey || !model || !serviceRoleKey || !supabaseUrl)
+  if (!serviceRoleKey || !supabaseUrl)
     throw new IngestionError("missing_ingestion_environment");
   let url: URL;
   try {
@@ -36,5 +32,5 @@ export function readIngestionConfig(env: NodeJS.ProcessEnv): IngestionConfig {
   ) {
     throw new IngestionError("local_database_required");
   }
-  return { apiKey, model, serviceRoleKey, supabaseUrl: url.origin };
+  return { serviceRoleKey, supabaseUrl: url.origin };
 }

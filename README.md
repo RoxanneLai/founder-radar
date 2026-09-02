@@ -20,7 +20,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator i
 npm run ingest -- --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests and no database writes. Live mode requires explicit opt-in, server-side credentials, an API model choice, and a separately approved testing budget. See the ingestion guide before enabling it.
+After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent now uses OpenRouter, with the model default in `config/ingestion.json` and a per-run `--model vendor/model-id` override. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
 
 ## Run the web application
 
@@ -60,7 +60,7 @@ The database is reproducible from committed files:
 | `supabase/seed.sql`        | Six deterministic fictional events and their provenance |
 | `supabase/tests/database/` | pgTAP database contract tests                           |
 
-Never commit hosted Supabase credentials, service-role keys, downloaded live data, or `.env` files.
+Never commit hosted Supabase credentials, service-role keys, `OPENROUTER.key`, downloaded live data, or `.env` files.
 
 ### Optional: rebuild the local fixture database
 
@@ -128,7 +128,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | Status                    | Scope                                                                                                                      |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                     |
-| Built; live check pending | Manually triggered OpenAI web-search ingestion, source evidence, draft-only atomic persistence, and offline/database tests |
+| Built; live check pending | Manually triggered OpenRouter web-search ingestion, configurable model, source evidence, draft-only persistence, and tests |
 | Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                |
 | Implemented and tested    | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                 |
 | Implemented and tested    | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links              |

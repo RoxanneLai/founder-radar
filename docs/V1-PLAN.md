@@ -4,7 +4,7 @@
 
 V1 establishes a reproducible database and a server-side data boundary for FounderRadar. The database foundation is implemented. The full V1 application milestone is complete when a fresh local Supabase instance can be created from versioned migrations and the existing dashboard can render events from Postgres, with fictional fixtures clearly distinguished from live listings.
 
-The database foundation, first ingestion implementation, and dashboard read boundary are now present. The ingestion boundary pairs with one manually triggered OpenAI web-search adapter. See the [ingestion checkpoint](INGESTION-PROGRESS.md) and [dashboard checkpoint](INTEGRATION-PROGRESS.md) for verification. Live API validation remains a separate, unverified gate.
+The database foundation, ingestion implementation, and dashboard read boundary are now present. The ingestion boundary now uses OpenRouter with a configurable backend model; the original direct OpenAI adapter has been replaced. See the [ingestion guide](INGESTION.md) for current configuration. Earlier [ingestion](INGESTION-PROGRESS.md) and [dashboard](INTEGRATION-PROGRESS.md) checkpoints are historical records. Live API validation remains a separate, unverified gate.
 
 ## Why provenance comes first
 
@@ -70,9 +70,9 @@ The server-side ingestion module now implements the first provider adapter, with
 
 Provider adapters should return one shared discovery result shape and should not write SQL directly. That boundary will let the first internet agent evolve without coupling the database to a particular search service.
 
-The first discovery provider is OpenAI hosted web search, restricted to individual listing URLs on Luma, Meetup, and Eventbrite. Search reports are explicitly labeled model-generated evidence, not independently downloaded page content. A second tool-free structured-output request extracts facts and quotes. Unknown core fields leave a source unlinked; optional fields and uncomputed scores remain unknown; all usable events remain drafts.
+The current discovery provider is OpenRouter's hosted web-search server tool with Exa, restricted to individual listing URLs on Luma, Meetup, and Eventbrite. The backend model defaults from `config/ingestion.json` and can be overridden with `--model`. The private credential is read from ignored `OPENROUTER.key` only in live mode. Search reports are explicitly labeled model-generated evidence, not independently downloaded page content. A second tool-free structured-output request extracts facts and quotes. Unknown core fields leave a source unlinked; optional fields and uncomputed scores remain unknown; all usable events remain drafts.
 
-The manual command defaults to a no-network plan. Live mode requires two explicit opt-ins, an explicit model and server-side credentials, and a local-only database URL. Work is bounded to two model requests, three search-tool calls, a short date window, and at most ten candidates, with no automatic API retries. These are request bounds, not a dollar-exact budget.
+The manual command defaults to a no-network plan showing the selected model. Live mode requires two explicit opt-ins, the key file and server-side database credentials, and a local-only database URL. Work is bounded to two API requests, three hosted searches, a short date window, and at most ten candidates, with no automatic API retries. Hosted searches may involve internal model turns. These are request bounds, not a dollar-exact budget.
 
 The new transactional RPC preserves source identity, successful evidence after failures, original discovery attribution, and reviewed/published events. The implementation does not yet independently verify semantic truth or deduplicate the same event across platforms. See [the ingestion guide](INGESTION.md) for limits, evidence semantics, verification, and recovery.
 

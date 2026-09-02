@@ -216,18 +216,16 @@ test("CLI defaults to a no-network plan and fails closed on malformed arguments"
   }
 });
 
-test("live configuration requires paid opt-in, explicit model and local-only credentials", () => {
+test("live database configuration requires paid opt-in and local-only credentials", () => {
   const env = {
     FOUNDER_RADAR_ALLOW_PAID_API: "1",
-    OPENAI_API_KEY: "test-only",
-    OPENAI_MODEL: "test-model",
     SUPABASE_URL: "http://127.0.0.1:54321",
     SUPABASE_SERVICE_ROLE_KEY: "test-only",
   };
-  assert.equal(readIngestionConfig(env).model, "test-model");
+  assert.equal(readIngestionConfig(env).supabaseUrl, "http://127.0.0.1:54321");
   assert.throws(() => readIngestionConfig({}), /paid_api_not_enabled/);
   assert.throws(
-    () => readIngestionConfig({ ...env, OPENAI_MODEL: "" }),
+    () => readIngestionConfig({ ...env, SUPABASE_SERVICE_ROLE_KEY: "" }),
     /missing_ingestion_environment/,
   );
   for (const dbUrl of [

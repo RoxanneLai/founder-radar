@@ -15,6 +15,7 @@ import { IngestionError } from "./errors.ts";
 export function createIngestionRepository(
   url: string,
   key: string,
+  model: string,
 ): IngestionRepository {
   const client = createClient<Database>(url, key, {
     auth: {
@@ -33,14 +34,16 @@ export function createIngestionRepository(
         }),
     },
   });
-  return new SupabaseIngestionRepository(client);
+  return new SupabaseIngestionRepository(client, model);
 }
 
 export class SupabaseIngestionRepository implements IngestionRepository {
   private readonly client: SupabaseClient<Database>;
+  private readonly model: string | null;
 
-  constructor(client: SupabaseClient<Database>) {
+  constructor(client: SupabaseClient<Database>, model: string | null = null) {
     this.client = client;
+    this.model = model;
   }
 
   async start(options: SearchOptions): Promise<string> {
@@ -55,8 +58,8 @@ export class SupabaseIngestionRepository implements IngestionRepository {
       .insert({
         agent_name: "founder-radar-discovery",
         agent_version: "0.1.0",
-        provider: "openai-web-search",
-        search_parameters: { ...options },
+        provider: "openrouter-web-search",
+        search_parameters: { ...options, model: this.model },
         status: "running",
       })
       .select("id")

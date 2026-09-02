@@ -34,7 +34,7 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
       },
     },
   );
-  const repo = new SupabaseIngestionRepository(client);
+  const repo = new SupabaseIngestionRepository(client, "openai/gpt-4.1");
   const id = await repo.start(options);
   await repo.checkpoint(id, { phase: "research" });
   const saved = await repo.save(
@@ -56,7 +56,8 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
     {},
   );
   assert.match(calls[0].url, /last_attempt_at/);
-  assert.equal(calls[1].body.provider, "openai-web-search");
+  assert.equal(calls[1].body.provider, "openrouter-web-search");
+  assert.equal(calls[1].body.search_parameters.model, "openai/gpt-4.1");
   assert.match(calls[3].url, /\/rest\/v1\/rpc\/ingest_event_source/);
   assert.equal(calls[3].body.p_event, null);
   assert.equal(calls[3].body.p_run_id, id);
