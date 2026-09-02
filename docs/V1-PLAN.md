@@ -4,7 +4,7 @@
 
 V1 establishes a reproducible database and a server-side data boundary for FounderRadar. The database foundation is implemented. The full V1 application milestone is complete when a fresh local Supabase instance can be created from versioned migrations and the existing dashboard can render events from Postgres, with fictional fixtures clearly distinguished from live listings.
 
-The database foundation and first ingestion implementation are now present. The ingestion boundary pairs with one manually triggered OpenAI web-search adapter. Offline verification is complete only as recorded in the [build checkpoint](INGESTION-PROGRESS.md); live API validation and UI integration are separate remaining gates.
+The database foundation, first ingestion implementation, and dashboard read boundary are now present. The ingestion boundary pairs with one manually triggered OpenAI web-search adapter. See the [ingestion checkpoint](INGESTION-PROGRESS.md) and [dashboard checkpoint](INTEGRATION-PROGRESS.md) for verification. Live API validation remains a separate, unverified gate.
 
 ## Why provenance comes first
 
@@ -29,7 +29,7 @@ search_runs -> event_sources -> events -> published application data
 - Source identity is protected by unique indexes on `(source_name, external_id)` when an external ID exists and on `(source_name, source_url)`.
 - Raw provider payloads use `jsonb`; extracted page text and a content hash have dedicated columns. A source stores the latest snapshot and its original discovery run, not an append-only history of every fetch.
 - Row-level security exposes only `published` events to anonymous and authenticated application roles. Source payloads and run diagnostics have no public policies.
-- The six V0 fixtures are seeded with deterministic UUIDs, `is_fixture = true`, and `.invalid` source URLs. A future live feed must filter out fixtures and retain clear sample labeling when deliberately showing them.
+- The six V0 fixtures are seeded with deterministic UUIDs, `is_fixture = true`, and `.invalid` source URLs. The main feed excludes fixtures; `/sample` retains the original clearly labeled sample edition.
 
 ## Foundation completion criteria
 
@@ -74,7 +74,13 @@ The first discovery provider is OpenAI hosted web search, restricted to individu
 
 The manual command defaults to a no-network plan. Live mode requires two explicit opt-ins, an explicit model and server-side credentials, and a local-only database URL. Work is bounded to two model requests, three search-tool calls, a short date window, and at most ten candidates, with no automatic API retries. These are request bounds, not a dollar-exact budget.
 
-The new transactional RPC preserves source identity, successful evidence after failures, original discovery attribution, and reviewed/published events. The implementation does not yet independently verify semantic truth, deduplicate the same event across platforms, or connect the dashboard. See [the ingestion guide](INGESTION.md) for limits, evidence semantics, verification, and recovery.
+The new transactional RPC preserves source identity, successful evidence after failures, original discovery attribution, and reviewed/published events. The implementation does not yet independently verify semantic truth or deduplicate the same event across platforms. See [the ingestion guide](INGESTION.md) for limits, evidence semantics, verification, and recovery.
+
+## Dashboard integration — September 2, 2026
+
+The main route now reads published, non-fixture events through a server-only anonymous Supabase client. It shows the next 30 days of in-person or hybrid NYC events, excludes cancelled listings, preserves unknown prices/scores, and supports loading, empty, unconfigured, and unavailable states. The sample edition is separate and never a silent fallback. Page loads cannot publish drafts, read private evidence, or trigger paid requests.
+
+The code and automated tests are implemented; see [the dashboard guide](DASHBOARD.md) for local public-read setup and [integration progress](INTEGRATION-PROGRESS.md) for the exact verification results. Publishing controls and safe public registration links remain future work.
 
 ### Next acceptance gate: a paid live smoke test
 

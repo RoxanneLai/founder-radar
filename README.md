@@ -4,13 +4,13 @@
 
 FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: V1 ingestion implementation
+## Current milestone: database-backed dashboard
 
 V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation and a bounded, manually triggered ingestion agent. The agent implementation is tested offline; paid live-data verification is still pending.
 
-The browser at `http://localhost:3000` still renders the V0 fixtures from `lib/mock-events.ts`. The database schema and seed data are intentionally being established before the UI is connected to Supabase.
+The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
 
-See [the ingestion guide](docs/INGESTION.md) for safe startup, limits, and the live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone, and [build progress](docs/INGESTION-PROGRESS.md) records the overnight handoff.
+See [the dashboard guide](docs/DASHBOARD.md) for configuration and [integration progress](docs/INTEGRATION-PROGRESS.md) for verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
 
 ### Preview an ingestion run without spending money
 
@@ -30,6 +30,8 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+For database access, configure `SUPABASE_URL` as described in the [dashboard guide](docs/DASHBOARD.md). This project's auth-disabled local stack needs no API key for public reads. `SUPABASE_ANON_KEY` is only needed if you enable authentication in the local stack later. No service-role key or OpenAI key is needed for page loads. With only the seeded fixtures, the connected home page is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
 
 ## Run the local database
 
@@ -76,20 +78,23 @@ The schema is designed for discovery before normalization:
 4. Normalized sources are linked to canonical `events` records.
 5. Only events explicitly marked `published` are readable through the public application role.
 
-This preserves the latest source snapshot and its original discovery-run attribution. It does not yet retain every historical fetch; append-only observations can be added when needed. Raw source records and search-run diagnostics are not publicly readable. Seeded events carry `is_fixture = true`, so a future live feed can explicitly exclude them.
+This preserves the latest source snapshot and its original discovery-run attribution. It does not yet retain every historical fetch; append-only observations can be added when needed. Raw source records and search-run diagnostics are not publicly readable. The main dashboard explicitly excludes seeded events marked `is_fixture = true`.
 
 ## Application architecture
 
-| File                       | Responsibility                                            |
-| -------------------------- | --------------------------------------------------------- |
-| `lib/types.ts`             | Current V0 UI event contract                              |
-| `lib/mock-events.ts`       | Fictional fixtures used by the current page               |
-| `lib/events.ts`            | Deterministic ranking, score bands, and formatting        |
-| `components/EventCard.tsx` | Event presentation                                        |
-| `app/page.tsx`             | Current server-rendered shortlist                         |
-| `supabase/`                | V1 persistence, provenance, seed data, and database tests |
+| File                       | Responsibility                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `lib/types.ts`             | Original fixture contract and shared categories                                   |
+| `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                                |
+| `lib/dashboard/`           | Anonymous server-only reads, validation, public card contract, and sample adapter |
+| `lib/events.ts`            | Deterministic ranking, score bands, and formatting                                |
+| `components/EventCard.tsx` | Event presentation                                                                |
+| `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                     |
+| `app/page.tsx`             | Request-time published event feed                                                 |
+| `app/sample/page.tsx`      | Separate static fictional edition                                                 |
+| `supabase/`                | V1 persistence, provenance, seed data, and database tests                         |
 
-The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. The current UI remains a static prototype until a later increment connects it to persisted events.
+The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. Ingestion remains separate from the read-only dashboard; page loads never make paid API calls.
 
 ## Verification
 
@@ -99,9 +104,10 @@ npm run typecheck
 npm test
 npm run build
 npm run test:next
+npm run test:next:runtime
 ```
 
-`test:next` reads the production output, so run `build` first. Database checks require the local Supabase stack.
+Run `build` before the two production checks. `test:next:runtime` uses only synthetic HTTP responses and temporary local ports; it needs permission to start local servers. Database checks require the local Supabase stack.
 
 ```bash
 npm run db:test
@@ -112,15 +118,15 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 
 ## Roadmap
 
-| Status                    | Scope                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                          |
-| Built; live check pending | Manually triggered OpenAI web-search ingestion, source evidence, draft-only atomic persistence, and offline/database tests      |
-| Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                     |
-| Next                      | Connect the dashboard to persisted events, clearly separate fixtures from live listings, and support unknown or unscored fields |
-| Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation               |
+| Status                    | Scope                                                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                     |
+| Built; live check pending | Manually triggered OpenAI web-search ingestion, source evidence, draft-only atomic persistence, and offline/database tests |
+| Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                |
+| Implemented and tested    | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                 |
+| Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation          |
 
-The database foundation is implemented; the full V1 application milestone is not complete until the UI reads from Postgres. Real event collection does not depend on finishing AI scoring first.
+The database read boundary and dashboard integration are implemented. Normal-checkout startup/configuration and the separately approved live-data gate remain operational follow-ups. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
 

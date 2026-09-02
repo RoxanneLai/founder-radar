@@ -1,21 +1,27 @@
 import { CalendarDays, MapPin, Sparkles, Ticket, Users } from "lucide-react";
 import { ScoreBadge } from "@/components/ScoreBadge";
-import { formatEventSchedule, formatPrice } from "@/lib/events";
-import type { StartupEvent } from "@/lib/types";
+import { formatEventSchedule, formatStoredPrice } from "@/lib/events";
+import type { DashboardEvent } from "@/lib/dashboard/types";
 
 const registrationLabels = {
   open: "Registration open",
   "almost-full": "Almost full",
   waitlist: "Waitlist",
+  unknown: "Registration status not listed",
+  closed: "Registration closed",
+  cancelled: "Cancelled",
 } as const;
 
 export function EventCard({
   event,
   rank,
 }: {
-  event: StartupEvent;
+  event: DashboardEvent;
   rank: number;
 }) {
+  const location = [event.venue, event.neighborhood, event.borough]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <article
       className={`event-card ${rank === 1 ? "event-card-top" : ""}`}
@@ -42,7 +48,11 @@ export function EventCard({
         <div className="event-heading">
           <div>
             <h3 id={`title-${event.id}`}>{event.title}</h3>
-            <p className="organizer">Hosted by {event.organizer}</p>
+            <p className="organizer">
+              {event.organizer
+                ? `Hosted by ${event.organizer}`
+                : "Organizer not listed"}
+            </p>
           </div>
           <ScoreBadge score={event.networkingScore} prominent />
         </div>
@@ -53,17 +63,20 @@ export function EventCard({
           </p>
           <p>
             <MapPin size={15} aria-hidden="true" />
-            <span>
-              {event.venue} · {event.neighborhood}, {event.borough}
-            </span>
+            <span>{location || "Venue not listed · New York City"}</span>
           </p>
         </div>
         <div className="recommendation">
           <h4>
             <Sparkles size={14} aria-hidden="true" />
-            Why FounderRadar recommends it
+            {event.recommendation
+              ? "Why FounderRadar recommends it"
+              : "Recommendation pending"}
           </h4>
-          <p>{event.recommendation}</p>
+          <p>
+            {event.recommendation ??
+              "No recommendation has been added for this event yet."}
+          </p>
         </div>
         {event.potentialDownside && (
           <p className="downside">
@@ -79,8 +92,10 @@ export function EventCard({
           </div>
           <div className="event-cost">
             <Ticket size={14} aria-hidden="true" />
-            <strong>{formatPrice(event.priceUsd)}</strong>
-            <span>via {event.source}</span>
+            <strong>
+              {formatStoredPrice(event.priceAmountCents, event.currencyCode)}
+            </strong>
+            {event.source && <span>via {event.source}</span>}
           </div>
         </div>
       </div>
@@ -91,7 +106,11 @@ export function EventCard({
           <span aria-hidden="true" />
           {registrationLabels[event.registrationStatus]}
         </span>
-        <span>Sample listing · no registration</span>
+        <span>
+          {event.isFixture
+            ? "Sample listing · no registration"
+            : "Registration link not available"}
+        </span>
       </div>
     </article>
   );

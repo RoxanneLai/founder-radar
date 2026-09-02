@@ -26,7 +26,8 @@ body {
 a {
   color: inherit;
 }
-a:focus-visible {
+a:focus-visible,
+button:focus-visible {
   outline: 3px solid #567128;
   outline-offset: 5px;
   border-radius: 3px;
@@ -34,6 +35,61 @@ a:focus-visible {
 .page-shell {
   width: min(1200px, calc(100% - 80px));
   margin-inline: auto;
+}
+.edition-link {
+  margin-left: 10px;
+  text-underline-offset: 3px;
+}
+.feed-state {
+  padding: 32px 24px;
+  border: 1px solid #daddd2;
+  border-radius: 8px;
+  background: #fafbf6;
+}
+.feed-state h3 {
+  margin-top: 12px;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+.feed-state > p {
+  margin-top: 12px;
+  color: #53625b;
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 55ch;
+}
+.feed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+.feed-actions a,
+.feed-actions button {
+  padding: 10px 14px;
+  background: #244138;
+  border: 1px solid #244138;
+  border-radius: 6px;
+  color: #fafbf6;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.feed-limit {
+  margin-top: 18px;
+  color: #53625b;
+  font-size: 12px;
+}
+.score-unknown {
+  background: #efeee5;
+  color: #63644e;
+}
+.event-card h3,
+.organizer,
+.event-details,
+.recommendation,
+.downside {
+  overflow-wrap: anywhere;
 }
 .site-header {
   border-bottom: 1px solid #dcded5;
@@ -66,6 +122,7 @@ a:focus-visible {
 }
 .header-location {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   font-size: 12px;

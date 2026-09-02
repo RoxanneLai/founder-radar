@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "FounderRadar",
   description:
-    "Don’t show me every startup event. Show me the ones worth attending. A fictional NYC event shortlist demonstrating FounderRadar’s V0 product experience.",
+    "A shortlist of published NYC startup events. Explore upcoming events and a separately labeled fictional sample edition.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
