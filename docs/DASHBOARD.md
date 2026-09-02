@@ -9,19 +9,20 @@ Page loads never run the ingestion agent, call OpenAI, calculate scores, publish
 ## Connect the local database
 
 1. Keep Docker Desktop running and use `npm run db:start` for ordinary startup. Do **not** reset existing data.
-   Apply pending migrations with `npm run db:migrate` after reviewing them. The reviewed-link addition requires `20260902061000`; without its new column, the updated feed returns its safe unavailable state. The overnight cycle did not migrate the normal database.
-2. In your regular Terminal, run `npm run db:status` to confirm the local API URL. Authentication is disabled in this project's local configuration, so no anonymous API key is issued or needed for public reads.
-3. Set the following value in your own ignored `.env.local`, or export it in the Terminal used to start Next.js:
+   Apply pending migrations with `npm run db:migrate` after reviewing them. The reviewed-link addition requires `20260902061000`; without its new column, the updated feed returns its safe unavailable state.
+2. In your regular Terminal, run `npm run db:status` to find the local API URL and anonymous/public key. Keep the output private: it also includes privileged credentials. If upgrading from the earlier auth-disabled configuration, run `npm run db:stop` followed by `npm run db:start` first; do not use `--no-backup` or reset the database.
+3. Set the following values in your own ignored `.env.local`, or export them in the Terminal used to start Next.js. Replace the placeholder with the local anonymous/public key, never the service-role/secret key:
 
    ```dotenv
    SUPABASE_URL=http://127.0.0.1:54321
+   SUPABASE_ANON_KEY=<local-anonymous-or-publishable-key>
    ```
 
 4. Run `npm run dev` and open `http://localhost:3000`. Restart the server after changing environment values.
 
-The dashboard accepts a local loopback URL with an explicit port only. In this project's auth-disabled local mode, leave `SUPABASE_ANON_KEY` unset: requests contain no credentials and PostgREST applies the anonymous database role. The SDK's required construction placeholder is stripped before any HTTP request and is never sent.
+The dashboard accepts a local loopback URL with an explicit port only. The current local stack enables authentication with sign-ups disabled. This supplies separate public-read and privileged-ingestion credentials without adding a login screen.
 
-If you deliberately enable authentication in the local stack later, also supply `SUPABASE_ANON_KEY` with its anonymous/public key. The dashboard accepts an anonymous-role JWT or a public `sb_publishable_` key and rejects service-role/secret keys. Supabase authenticates the key; the configuration check is an additional guard against accidental privileged access. A failed authenticated request never automatically retries without credentials. Hosted endpoints and credentials embedded in URLs are rejected in both modes.
+The dashboard accepts an anonymous-role JWT or a public `sb_publishable_` key and rejects service-role/secret keys. Supabase authenticates the key; the configuration check is an additional guard against accidental privileged access. A failed authenticated request never automatically retries without credentials. Hosted endpoints and credentials embedded in URLs are rejected. When no key is configured, the SDK construction placeholder is stripped before any request. The verified local stack also allows keyless public event reads, but both keyless and anonymous-key requests remain blocked from private source evidence, runs, and review history. Explicitly configuring the anonymous/public key avoids relying on that local gateway behavior.
 
 No `OPENAI_API_KEY`, model selection, or paid opt-in is needed for the dashboard. Do not put a service-role credential in `SUPABASE_ANON_KEY`, and do not add `NEXT_PUBLIC_` prefixes. The separate ingestion command still needs its own privileged configuration and explicit paid approval when used live; keyless public reads do not grant ingestion privileges.
 

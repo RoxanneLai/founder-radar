@@ -37,7 +37,10 @@ enabled = false
 enabled = false
 
 [auth]
-enabled = false
+# Local API credentials for anonymous dashboard reads and privileged ingestion.
+# This enables the service, not a public sign-up flow in the application.
+enabled = true
+enable_signup = false
 
 [edge_runtime]
 enabled = false

@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered, local-only ingestion command. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events.
 
-**Live API verification has not been performed.** The overnight build is tested with synthetic provider responses and a disposable PostgreSQL database. Finding three real, correctly dated events remains tomorrow's acceptance check, not an accomplished result.
+**Live API verification has not been performed.** The overnight build is tested with synthetic provider responses and a disposable PostgreSQL database. Finding three real, correctly dated events remains a separately approved acceptance check, not an accomplished result.
 
 ## What happens in one run
 
@@ -45,11 +45,12 @@ npm run ingest -- --from 2026-09-02T00:00:00-04:00 --to 2026-09-16T00:00:00-04:0
 
 Replace these example dates when they are no longer current. The start is inclusive and the end is exclusive.
 
-## Prepare live mode tomorrow
+## Prepare live mode
 
 1. Review the changes and agree on a small **separate OpenAI API testing budget**. Codex allowance does not pay for these API requests.
 2. Start Docker Desktop and the local stack with `npm run db:start`.
 3. Apply pending local migrations using `npm run db:migrate`. This adds the ingestion RPC and attempt-diagnostic columns without resetting data. Do not use `db:reset` on a database containing data you want to keep.
+   The local configuration now enables authentication with sign-ups disabled. After upgrading from the old auth-disabled setup, use `npm run db:stop` then `npm run db:start` to activate it without deleting data. Obtain the local service-role key from `npm run db:status` in your own Terminal; keep the output private. The dashboard uses a different, anonymous/public key.
 4. Supply the following server-side environment variables in the terminal where the command will run:
 
 | Variable                       | Purpose                                                                                               |
@@ -143,4 +144,4 @@ Common codes:
 - Confirm all new events remain nonfixture drafts and have source URLs/evidence.
 - Repeat the same bounded search and confirm the same source identities reuse records.
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
-- Only then plan dashboard integration or additional providers.
+- Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.

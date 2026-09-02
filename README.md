@@ -10,7 +10,7 @@ V0 is complete: the repository contains a working static Next.js prototype with 
 
 The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
 
-See [the dashboard guide](docs/DASHBOARD.md) for configuration and [integration progress](docs/INTEGRATION-PROGRESS.md) for verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
+See [the dashboard guide](docs/DASHBOARD.md) for configuration, [the local readiness checkpoint](docs/LOCAL-READINESS.md) for current setup status, and [integration progress](docs/INTEGRATION-PROGRESS.md) for earlier verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
 
 The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. Apply pending migrations before using this workflow or the updated database-backed dashboard. No real events were published during the [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
@@ -33,7 +33,7 @@ npm run dev
 
 Open http://localhost:3000.
 
-For database access, configure `SUPABASE_URL` as described in the [dashboard guide](docs/DASHBOARD.md). This project's auth-disabled local stack needs no API key for public reads. `SUPABASE_ANON_KEY` is only needed if you enable authentication in the local stack later. No service-role key or OpenAI key is needed for page loads. With only the seeded fixtures, the connected home page is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
+For database access, configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` as described in the [dashboard guide](docs/DASHBOARD.md). The local stack enables authentication with sign-ups disabled, keeping anonymous dashboard reads separate from privileged ingestion. No service-role key or OpenAI key is needed for page loads. With only the seeded fixtures, the connected home page is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
 
 ## Run the local database
 
@@ -48,6 +48,8 @@ Supabase Studio runs at http://localhost:54323. Stop the local stack with `npm r
 Use `db:start` for ordinary startup; resetting the database is not part of the daily workflow. These scripts operate on the local stack, which is for development only and must not be exposed publicly.
 
 To apply newly added migrations without resetting existing data, run `npm run db:migrate`.
+
+After changing local service configuration, use `npm run db:stop` followed by `npm run db:start`. The default stop preserves local data; never add `--no-backup`. Authentication is enabled for local API credentials, not for a public login or sign-up feature. `npm run db:status` displays local credentials: keep that output private and use only the anonymous/public key for the dashboard.
 
 The database is reproducible from committed files:
 
@@ -132,7 +134,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | Implemented and tested    | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links              |
 | Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation          |
 
-The database read boundary and dashboard integration are implemented. Normal-checkout startup/configuration and the separately approved live-data gate remain operational follow-ups. Real event collection does not depend on finishing AI scoring first.
+The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Configure the host dashboard using its guide; the separately approved live-data gate remains the next milestone. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
 
