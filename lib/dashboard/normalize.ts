@@ -2,6 +2,7 @@ import { z } from "zod";
 import { EVENT_CATEGORIES } from "../types.ts";
 import { rankEvents } from "../events.ts";
 import type { DashboardEvent } from "./types.ts";
+import { publicListingUrl } from "../public-listing-url.ts";
 
 export const DASHBOARD_LIMIT = 50;
 export const DASHBOARD_DAYS = 30;
@@ -49,6 +50,7 @@ const rowSchema = z
     networking_score: score,
     recommendation: text,
     potential_downside: text,
+    public_registration_url: z.string().nullable().optional(),
   })
   .refine(
     (row) =>
@@ -102,6 +104,11 @@ function toDashboardEvent(row: PublicEventRow): DashboardEvent {
     priceAmountCents: row.price_amount_cents,
     currencyCode: row.currency_code,
     source: null,
+    registrationUrl:
+      row.public_registration_url ===
+      publicListingUrl(row.public_registration_url)
+        ? (row.public_registration_url ?? null)
+        : null,
     registrationStatus: row.registration_status,
     isNew: false,
     isFixture: false,

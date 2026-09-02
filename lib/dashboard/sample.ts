@@ -9,6 +9,7 @@ export function getSampleEvents(): DashboardEvent[] {
     priceAmountCents: Math.round(event.priceUsd * 100),
     currencyCode: "USD",
     isFixture: true,
+    registrationUrl: null,
     potentialDownside: event.potentialDownside ?? null,
   }));
 }

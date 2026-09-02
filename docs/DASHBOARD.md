@@ -9,6 +9,7 @@ Page loads never run the ingestion agent, call OpenAI, calculate scores, publish
 ## Connect the local database
 
 1. Keep Docker Desktop running and use `npm run db:start` for ordinary startup. Do **not** reset existing data.
+   Apply pending migrations with `npm run db:migrate` after reviewing them. The reviewed-link addition requires `20260902061000`; without its new column, the updated feed returns its safe unavailable state. The overnight cycle did not migrate the normal database.
 2. In your regular Terminal, run `npm run db:status` to confirm the local API URL. Authentication is disabled in this project's local configuration, so no anonymous API key is issued or needed for public reads.
 3. Set the following value in your own ignored `.env.local`, or export it in the Terminal used to start Next.js:
 
@@ -43,7 +44,7 @@ The fixture rows remain publicly readable under the existing database policy; th
 
 Missing scores say “Not scored,” missing prices say “Price not listed,” and missing organizers/end times remain explicitly unknown. Known prices use integer minor units and their currency; only an explicit known zero is free. Blank recommendations do not become generated recommendations. Published events are not automatically considered newly discovered or independently verified.
 
-The app currently has no safe public registration-link field: registration URLs live with private source evidence. Therefore real cards say “Registration link not available.” A future reviewed-link publication boundary can expose a selected safe URL without making source payloads public. This cycle does not add publishing controls, an admin interface, automatic scoring, or discovery scheduling.
+The public `events.public_registration_url` field now carries only a selected canonical listing link, set through the separate [local review workflow](REVIEW-PUBLISH.md). The dashboard rejects noncanonical or unsupported URLs and never copies a link from private source records. Cards without an approved link still say “Registration link not available.” Sample cards never have links. Links open in a new tab with opener protection and no referrer. The public page has no publishing controls, admin interface, automatic scoring, or discovery scheduling.
 
 ## Verify
 

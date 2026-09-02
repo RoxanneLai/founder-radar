@@ -11,7 +11,7 @@ import type { DashboardResult } from "./types.ts";
 
 // Intentionally no joins, source evidence, internal timestamps, or run metadata.
 export const PUBLIC_EVENT_COLUMNS =
-  "id,title,organizer_name,starts_at,ends_at,time_zone,venue_name,neighborhood,borough,city,region,country_code,event_format,categories,price_amount_cents,currency_code,registration_status,publication_status,is_fixture,founder_score,investor_score,networking_score,recommendation,potential_downside";
+  "id,title,organizer_name,starts_at,ends_at,time_zone,venue_name,neighborhood,borough,city,region,country_code,event_format,categories,price_amount_cents,currency_code,registration_status,publication_status,is_fixture,founder_score,investor_score,networking_score,recommendation,potential_downside,public_registration_url";
 
 /** Read fresh public data only. Failures are safe states, never demo fallbacks. */
 export async function loadDashboard(

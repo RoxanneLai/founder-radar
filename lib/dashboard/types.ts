@@ -15,6 +15,7 @@ export type DashboardEvent = {
   priceAmountCents: number | null;
   currencyCode: string | null;
   source: string | null;
+  registrationUrl: string | null;
   registrationStatus:
     "unknown" | "open" | "almost-full" | "waitlist" | "closed" | "cancelled";
   isNew: boolean;

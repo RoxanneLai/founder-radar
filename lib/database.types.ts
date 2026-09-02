@@ -1,4 +1,4 @@
-// Generated from the migrated public schema using Supabase postgres-meta.
+// Schema snapshot initialized with Supabase postgres-meta, aligned with versioned migrations.
 export type Json =
   | string
   | number
@@ -10,6 +10,51 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      event_publication_reviews: {
+        Row: {
+          id: string;
+          event_id: string;
+          source_id: string;
+          review_token: string;
+          review_snapshot: Json;
+          approved_at: string;
+          approved_by_role: string;
+        };
+        Insert: {
+          id?: string;
+          event_id: string;
+          source_id: string;
+          review_token: string;
+          review_snapshot: Json;
+          approved_at?: string;
+          approved_by_role?: string;
+        };
+        Update: {
+          id?: string;
+          event_id?: string;
+          source_id?: string;
+          review_token?: string;
+          review_snapshot?: Json;
+          approved_at?: string;
+          approved_by_role?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "event_publication_reviews_event_id_fkey";
+            columns: ["event_id"];
+            isOneToOne: false;
+            referencedRelation: "events";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "event_publication_reviews_source_id_fkey";
+            columns: ["source_id"];
+            isOneToOne: false;
+            referencedRelation: "event_sources";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       event_sources: {
         Row: {
           content_hash: string | null;
@@ -114,6 +159,7 @@ export type Database = {
           potential_downside: string | null;
           price_amount_cents: number | null;
           publication_status: string;
+          public_registration_url: string | null;
           published_at: string | null;
           recommendation: string | null;
           region: string;
@@ -147,6 +193,7 @@ export type Database = {
           potential_downside?: string | null;
           price_amount_cents?: number | null;
           publication_status?: string;
+          public_registration_url?: string | null;
           published_at?: string | null;
           recommendation?: string | null;
           region?: string;
@@ -180,6 +227,7 @@ export type Database = {
           potential_downside?: string | null;
           price_amount_cents?: number | null;
           publication_status?: string;
+          public_registration_url?: string | null;
           published_at?: string | null;
           recommendation?: string | null;
           region?: string;
@@ -252,6 +300,20 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      get_event_review: {
+        Args: { p_event_id: string; p_source_id?: string };
+        Returns: Json;
+      };
+      publish_reviewed_event: {
+        Args: {
+          p_event_id: string;
+          p_source_id: string;
+          p_review_token: string;
+          p_approved?: boolean;
+        };
+        Returns: Json;
+      };
+      public_listing_url: { Args: { p_url: string }; Returns: string };
       ingest_event_source: {
         Args: {
           p_event?: Json;

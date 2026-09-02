@@ -535,6 +535,12 @@ h1 > span {
   align-items: center;
   gap: 5px;
 }
+.event-status-bar a {
+  color: #45583d;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .registration > span {
   width: 4px;
   height: 4px;

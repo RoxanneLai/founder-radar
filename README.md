@@ -4,13 +4,15 @@
 
 FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: database-backed dashboard
+## Current milestone: draft review and publication
 
 V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation and a bounded, manually triggered ingestion agent. The agent implementation is tested offline; paid live-data verification is still pending.
 
 The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
 
 See [the dashboard guide](docs/DASHBOARD.md) for configuration and [integration progress](docs/INTEGRATION-PROGRESS.md) for verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
+
+The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. Apply pending migrations before using this workflow or the updated database-backed dashboard. No real events were published during the [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
 ### Preview an ingestion run without spending money
 
@@ -78,6 +80,8 @@ The schema is designed for discovery before normalization:
 4. Normalized sources are linked to canonical `events` records.
 5. Only events explicitly marked `published` are readable through the public application role.
 
+The manual review boundary records a private approval snapshot in `event_publication_reviews` and exposes only a selected canonical `public_registration_url` on the event. Publication never happens as a side effect of discovery or a page load.
+
 This preserves the latest source snapshot and its original discovery-run attribution. It does not yet retain every historical fetch; append-only observations can be added when needed. Raw source records and search-run diagnostics are not publicly readable. The main dashboard explicitly excludes seeded events marked `is_fixture = true`.
 
 ## Application architecture
@@ -87,6 +91,7 @@ This preserves the latest source snapshot and its original discovery-run attribu
 | `lib/types.ts`             | Original fixture contract and shared categories                                   |
 | `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                                |
 | `lib/dashboard/`           | Anonymous server-only reads, validation, public card contract, and sample adapter |
+| `lib/review/`              | Local operator CLI, evidence review, public preview, and explicit publication     |
 | `lib/events.ts`            | Deterministic ranking, score bands, and formatting                                |
 | `components/EventCard.tsx` | Event presentation                                                                |
 | `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                     |
@@ -114,7 +119,7 @@ npm run db:test
 npm run db:lint
 ```
 
-The database contract tests expect the fictional seed events. Prefer `npm run db:test:isolated`: it creates a disposable database inside the local Supabase Docker container, applies migrations and seeds, runs the contracts and a concurrency test, and removes only that disposable database. Do not reset a database containing data you want to keep just to run tests. See the [build checkpoint](docs/INGESTION-PROGRESS.md) for current verification and local installation limitations.
+The database contract tests expect the fictional seed events. Prefer `npm run db:test:isolated`: it creates a disposable database inside the local Supabase Docker container, applies migrations and seeds, runs contracts, the real review CLI, and concurrency checks, and removes only that disposable database. Do not reset a database containing data you want to keep just to run tests. See the [review checkpoint](docs/REVIEW-PUBLISH-PROGRESS.md) for current verification and local installation limitations.
 
 ## Roadmap
 
@@ -124,6 +129,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | Built; live check pending | Manually triggered OpenAI web-search ingestion, source evidence, draft-only atomic persistence, and offline/database tests |
 | Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                |
 | Implemented and tested    | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                 |
+| Implemented and tested    | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links              |
 | Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation          |
 
 The database read boundary and dashboard integration are implemented. Normal-checkout startup/configuration and the separately approved live-data gate remain operational follow-ups. Real event collection does not depend on finishing AI scoring first.

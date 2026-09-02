@@ -106,11 +106,23 @@ export function EventCard({
           <span aria-hidden="true" />
           {registrationLabels[event.registrationStatus]}
         </span>
-        <span>
-          {event.isFixture
-            ? "Sample listing · no registration"
-            : "Registration link not available"}
-        </span>
+        {!event.isFixture && event.registrationUrl ? (
+          <a
+            href={event.registrationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerPolicy="no-referrer"
+          >
+            View event & registration{" "}
+            <span className="sr-only">(opens in a new tab)</span>
+          </a>
+        ) : (
+          <span>
+            {event.isFixture
+              ? "Sample listing · no registration"
+              : "Registration link not available"}
+          </span>
+        )}
       </div>
     </article>
   );

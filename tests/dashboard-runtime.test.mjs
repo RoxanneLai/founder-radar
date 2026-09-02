@@ -95,6 +95,30 @@ after(async () => {
   }
 });
 
+test("production cards expose reviewed registration links without leaking private URLs", async () => {
+  responseRows = [
+    upcomingRow({
+      public_registration_url: "https://luma.com/synthetic-reviewed-event",
+      source_url: "https://luma.com/private?token=secret",
+    }),
+  ];
+  let { html } = await page();
+  assert.match(html, /href="https:\/\/luma.com\/synthetic-reviewed-event"/);
+  assert.match(html, /rel="noopener noreferrer"/);
+  assert.match(html, /referrerPolicy="no-referrer"/i);
+  assert.match(html, /View event &amp; registration/);
+  assert.doesNotMatch(html, /token=secret|luma.com\/private/);
+  responseRows = [
+    upcomingRow({
+      public_registration_url:
+        "https://luma.com/synthetic-reviewed-event?secret=private",
+    }),
+  ];
+  ({ html } = await page());
+  assert.match(html, /Registration link not available/);
+  assert.doesNotMatch(html, /secret=private/);
+});
+
 test("production route renders fresh published records and never exposes private fields", async () => {
   responseRows = [
     upcomingRow({

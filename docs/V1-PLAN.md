@@ -80,7 +80,11 @@ The new transactional RPC preserves source identity, successful evidence after f
 
 The main route now reads published, non-fixture events through a server-only anonymous Supabase client. It shows the next 30 days of in-person or hybrid NYC events, excludes cancelled listings, preserves unknown prices/scores, and supports loading, empty, unconfigured, and unavailable states. The sample edition is separate and never a silent fallback. Page loads cannot publish drafts, read private evidence, or trigger paid requests.
 
-The code and automated tests are implemented; see [the dashboard guide](DASHBOARD.md) for local public-read setup and [integration progress](INTEGRATION-PROGRESS.md) for the exact verification results. Publishing controls and safe public registration links remain future work.
+The code and automated tests are implemented; see [the dashboard guide](DASHBOARD.md) for local public-read setup and [integration progress](INTEGRATION-PROGRESS.md) for the exact verification results.
+
+## Draft review and publication — September 2, 2026
+
+A local operator CLI now lists drafts, inspects private evidence, previews the shared public card model, and publishes one event only with explicit approval and a matching event/evidence revision token. Publication records a private approval snapshot and a canonical listing URL, without exposing source payloads or generating missing facts. Concurrent approvals are serialized and later ingestion preserves published event fields. Public application roles cannot review or publish. See [the operator guide](REVIEW-PUBLISH.md) and [verification checkpoint](REVIEW-PUBLISH-PROGRESS.md). This increment remains local-only; its migration must be deliberately applied to the normal database before use.
 
 ### Next acceptance gate: a paid live smoke test
 
