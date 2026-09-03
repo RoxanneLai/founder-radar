@@ -62,7 +62,7 @@ function providerWithResponses(responses, model = "openai/gpt-4.1") {
       requests.push({
         input: String(input),
         init,
-        body: JSON.parse(init.body),
+        body: init.body ? JSON.parse(init.body) : null,
       });
       const next = responses.shift();
       assert.ok(next, "unexpected extra API call");
@@ -174,6 +174,7 @@ test("incomplete, refused, malformed, missing-search and over-budget responses f
   refused.choices[0].message.refusal = "refused";
   const missingUsage = response(report, 1);
   delete missingUsage.usage;
+  missingUsage.choices[0].message.annotations = [];
   const tools = response(report, 1);
   tools.choices[0].message.tool_calls = [{ id: "unexecuted" }];
   for (const [value, expected] of [
@@ -305,6 +306,43 @@ test("only annotated URLs can become drafts; an empty search skips extraction", 
   assert.equal(requests.length, 1);
 });
 
+test("only cited listing URLs named in the report are selected, in report order", async () => {
+  const second = "https://luma.com/second-event";
+  const background = "https://meetup.com/group/events/123";
+  const unannotated = "https://luma.com/unannotated";
+  const text = `Second: ${second}. First: ${url}. Unsupported: ${unannotated}.`;
+  const value = response(text, 1);
+  value.choices[0].message.annotations = [
+    { type: "url_citation", url_citation: { url: background } },
+    { type: "url_citation", url_citation: { url } },
+    { type: "url_citation", url_citation: { url: second } },
+  ];
+  const { provider } = providerWithResponses([value]);
+  const research = await provider.research(options, signal);
+  assert.deepEqual(research.urls, [second, url]);
+});
+
+test("one primary cited listing per numbered event prevents duplicate-platform slots", async () => {
+  const duplicate = "https://eventbrite.com/e/founder-test-tickets-123";
+  const second = "https://luma.com/second-event";
+  const text = [
+    `### 1. Founder Test\nPrimary: ${url}\nDuplicate: ${duplicate}`,
+    `### 2. Second Event\nPrimary: ${second}`,
+  ].join("\n\n");
+  const value = response(text, 1);
+  value.choices[0].message.annotations = [url, duplicate, second].map(
+    (citationUrl) => ({
+      type: "url_citation",
+      url_citation: { url: citationUrl },
+    }),
+  );
+  const research = await providerWithResponses([value]).provider.research(
+    options,
+    signal,
+  );
+  assert.deepEqual(research.urls, [url, second]);
+});
+
 test("request timeout is bounded and invalid HTTP JSON fails safely", async (t) => {
   t.mock.method(AbortSignal, "timeout", (milliseconds) => {
     assert.equal(milliseconds, 120000);
@@ -349,7 +387,7 @@ test("missing extraction usage stays unknown rather than inventing zero cost", a
   assert.equal(extracted.metadata.search_tool_calls, null);
 });
 
-test("missing search usage preserves safe diagnostics in failed runs and progress files", async () => {
+test("bounded provider citations safely bridge a missing search counter", async () => {
   for (const missing of ["usage", "tool_usage", "counter", "null_counter"]) {
     const value = response(report, 1);
     if (missing === "usage") delete value.usage;
@@ -358,7 +396,10 @@ test("missing search usage preserves safe diagnostics in failed runs and progres
       delete value.usage.server_tool_use.web_search_requests;
     if (missing === "null_counter")
       value.usage.server_tool_use.web_search_requests = null;
-    const { provider, requests } = providerWithResponses([value]);
+    const { provider, requests } = providerWithResponses([
+      value,
+      response(JSON.stringify({ candidates: [candidate()] })),
+    ]);
     const repository = memoryRepository();
     const progress = [];
     const summary = await runIngestion(options, {
@@ -367,11 +408,11 @@ test("missing search usage preserves safe diagnostics in failed runs and progres
       signal,
       onProgress: async (snapshot) => progress.push(snapshot),
     });
-    assert.equal(summary.status, "failed");
-    assert.deepEqual(summary.errors, ["search_usage_missing"]);
-    assert.equal(requests.length, 1);
-    assert.equal(repository.events.size, 0);
-    assert.equal(repository.sources.size, 0);
+    assert.equal(summary.status, "succeeded");
+    assert.deepEqual(summary.errors, []);
+    assert.equal(requests.length, 2);
+    assert.equal(repository.events.size, 1);
+    assert.equal(repository.sources.size, 1);
     const [diagnostic] = summary.provider_diagnostics;
     assert.equal(diagnostic.response_id, "gen-offline-test");
     assert.equal(diagnostic.model, "openai/gpt-4.1");
@@ -379,6 +420,12 @@ test("missing search usage preserves safe diagnostics in failed runs and progres
     assert.equal(diagnostic.finish_reason, "stop");
     assert.equal(diagnostic.search_usage, "missing");
     assert.equal(diagnostic.search_tool_calls, null);
+    assert.equal(diagnostic.search_verification, "bounded_citations");
+    assert.equal(repository.runs[0].metadata.research.search_tool_calls, null);
+    assert.equal(
+      repository.runs[0].metadata.research.search_verification,
+      "bounded_citations",
+    );
     assert.equal(diagnostic.citation_count, 1);
     assert.equal(diagnostic.content_characters, report.length);
     assert.equal(diagnostic.usage.cost, missing === "usage" ? null : 0.001);
@@ -394,11 +441,70 @@ test("missing search usage preserves safe diagnostics in failed runs and progres
       repository.runs[0].metadata.summary.provider_diagnostics,
       summary.provider_diagnostics,
     );
-    assert.ok(
-      !JSON.stringify([summary, progress, repository.runs]).includes(report),
-    );
+    assert.ok(!JSON.stringify([summary, progress]).includes(report));
+    assert.equal(repository.runs[0].metadata.research_report, report);
     assert.ok(!JSON.stringify(summary).includes(key));
   }
+});
+
+test("citation fallback requires bounded, supported listing URLs", async () => {
+  const cases = [
+    [[], "search_usage_missing"],
+    [
+      [
+        {
+          type: "url_citation",
+          url_citation: { url: "https://example.com/event" },
+        },
+      ],
+      "invalid_search_citation",
+    ],
+    [
+      [
+        {
+          type: "url_citation",
+          url_citation: { url: "http://luma.com/event" },
+        },
+      ],
+      "invalid_search_citation",
+    ],
+    [
+      [
+        {
+          type: "url_citation",
+          url_citation: { url: "https://luma.com/discover" },
+        },
+      ],
+      "invalid_search_citation",
+    ],
+    [
+      Array(16).fill({ type: "url_citation", url_citation: { url } }),
+      "search_result_limit_exceeded",
+    ],
+  ];
+  for (const [annotations, expected] of cases) {
+    const value = response(report, 1);
+    delete value.usage.server_tool_use;
+    value.choices[0].message.annotations = annotations;
+    const { provider, requests } = providerWithResponses([value]);
+    await assert.rejects(provider.research(options, signal), {
+      code: expected,
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(provider.getDiagnostics()[0].search_verification, undefined);
+  }
+  const mixed = response(report, 1);
+  delete mixed.usage.server_tool_use;
+  mixed.choices[0].message.annotations.unshift({
+    type: "url_citation",
+    url_citation: { url: "https://example.com/background" },
+  });
+  const { provider } = providerWithResponses([mixed]);
+  const research = await provider.research(options, signal);
+  assert.deepEqual(
+    selectSources(research.urls, 3).map((source) => source.source_url),
+    [url],
+  );
 });
 
 test("zero and invalid search counters stay distinct without authorizing ingestion", async () => {

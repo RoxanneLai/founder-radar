@@ -100,6 +100,7 @@ export type ProviderDiagnostic = {
   finish_reason: string | null;
   search_usage: "missing" | "invalid" | "reported";
   search_tool_calls: number | null;
+  search_verification?: "usage_counter" | "bounded_citations";
   citation_count: number | null;
   tool_call_count: number | null;
   content_characters: number | null;

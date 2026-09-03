@@ -9,7 +9,7 @@ import type {
   SearchOptions,
   SourceIdentity,
 } from "./contracts.ts";
-import { ALLOWED_DOMAINS } from "./sources.ts";
+import { ALLOWED_DOMAINS, sourceIdentity } from "./sources.ts";
 import { IngestionError } from "./errors.ts";
 import {
   EXTRACTION_INSTRUCTIONS,
@@ -38,6 +38,43 @@ export const API_LIMITS = {
   reportCharacters: 40000,
   responseBytes: 1048576,
 } as const;
+
+/** Intersect trusted annotations with canonical listing URLs actually named in the report. */
+function reportedSourceUrls(response: RouterResponse): string[] {
+  const message = response.choices[0].message;
+  const annotated = new Set(
+    (message.annotations ?? [])
+      .filter(
+        (annotation) =>
+          annotation.type === "url_citation" && annotation.url_citation,
+      )
+      .map(
+        (annotation) =>
+          sourceIdentity(annotation.url_citation!.url)?.source_url,
+      )
+      .filter((url): url is string => Boolean(url)),
+  );
+  const collect = (text: string): string[] => {
+    const urls: string[] = [];
+    for (const match of text.matchAll(/https:\/\/[^\s)\]}>'"]+/g)) {
+      const url = sourceIdentity(
+        match[0].replace(/[.,;:!?]+$/, ""),
+      )?.source_url;
+      if (url && annotated.has(url) && !urls.includes(url)) urls.push(url);
+    }
+    return urls;
+  };
+  const sections = (message.content ?? "")
+    .split(/^###\s+\d+[.)]\s+/gm)
+    .slice(1);
+  if (sections.length) {
+    const primary = sections.flatMap((section) => collect(section).slice(0, 1));
+    if (primary.length) return [...new Set(primary)];
+  }
+  const selected = new Set<string>();
+  for (const url of collect(message.content ?? "")) selected.add(url);
+  return [...selected];
+}
 
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
 export function createOpenRouterProvider(
@@ -128,6 +165,32 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     }
   }
 
+  private verifyResearchSearch(response: RouterResponse): ProviderDiagnostic {
+    const diagnostic = this.diagnostics.at(-1)!;
+    const searches = response.usage?.server_tool_use?.web_search_requests;
+    if (searches != null) {
+      if (searches === 0) throw new IngestionError("search_not_performed");
+      if (searches > API_LIMITS.searchToolCalls)
+        throw new IngestionError("search_tool_limit_exceeded");
+      diagnostic.search_verification = "usage_counter";
+      return diagnostic;
+    }
+    const citations = (response.choices[0].message.annotations ?? []).filter(
+      (annotation) =>
+        annotation.type === "url_citation" && annotation.url_citation,
+    );
+    if (citations.length === 0)
+      throw new IngestionError("search_usage_missing");
+    if (citations.length > API_LIMITS.totalSearchResults)
+      throw new IngestionError("search_result_limit_exceeded");
+    if (
+      !citations.some((citation) => sourceIdentity(citation.url_citation!.url))
+    )
+      throw new IngestionError("invalid_search_citation");
+    diagnostic.search_verification = "bounded_citations";
+    return diagnostic;
+  }
+
   async research(
     options: SearchOptions,
     signal: AbortSignal,
@@ -159,24 +222,16 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       },
       signal,
     );
-    const searches = response.usage?.server_tool_use?.web_search_requests;
-    if (searches == null) throw new IngestionError("search_usage_missing");
-    if (searches === 0) throw new IngestionError("search_not_performed");
-    if (searches > API_LIMITS.searchToolCalls)
-      throw new IngestionError("search_tool_limit_exceeded");
     const message = response.choices[0].message;
     const report = message.content;
     if (!report?.trim() || report.length > API_LIMITS.reportCharacters)
       throw new IngestionError("invalid_research_report");
-    const urls = new Set<string>();
-    for (const annotation of message.annotations ?? []) {
-      if (annotation.type === "url_citation" && annotation.url_citation)
-        urls.add(annotation.url_citation.url);
-    }
+    const diagnostic = this.verifyResearchSearch(response);
+    const urls = reportedSourceUrls(response);
     return {
       report,
-      urls: [...urls],
-      metadata: routerMetadata(response, this.model),
+      urls,
+      metadata: routerMetadata(response, this.model, diagnostic),
     };
   }
 

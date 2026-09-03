@@ -38,7 +38,7 @@ function runCli(cwd, args, env = {}) {
 }
 
 test("checked-in model default and CLI override work without opening a key file", async (t) => {
-  assert.deepEqual(await readModelConfig(), { model: "openai/gpt-4.1" });
+  assert.deepEqual(await readModelConfig(), { model: "openai/gpt-5.6-luna" });
   const dir = await directory(t);
   await mkdir(dir + "/config");
   await writeFile(

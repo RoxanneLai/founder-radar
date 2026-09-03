@@ -4,13 +4,14 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live API acceptance has not passed.** The first approved comparison reached OpenRouter but stopped on `search_not_performed` before saving any sources/events or trying the second model. The old diagnostic could mean either missing search usage or an explicit zero. Its response ID and cost were not retained, so the cause and charge cannot be recovered from the local run record. Finding three real, correctly dated events remains an uncompleted acceptance check.
+**Live API acceptance has not passed.** The first approved comparison stopped with an ambiguous `search_not_performed` diagnostic. A subsequent Luna-only check received HTTP 200, a normal finish, 15 citation annotations, and a reported cost of $0.02426649, but no documented search counter. It stopped with `search_usage_missing` before extraction or writes. A read-only metadata lookup returned an aggregate record with no usable model, finish, engine, result, token, or cost details, so that endpoint cannot verify this server-tool response. The bounded-citation path below is tested offline, not yet end-to-end. Finding and reviewing three real, correctly dated events remains an uncompleted acceptance check.
 
 ## What happens in one run
 
 1. Validate the search dates and result limit and create a search-run record.
 2. Ask the configured model through OpenRouter's Chat Completions endpoint to research public listings using its `openrouter:web_search` server tool. The model controls its search queries; the tool uses Exa with explicit search/result bounds.
-3. Keep individual event URLs on Luma, Meetup, and Eventbrite that occur in returned URL-citation annotations. Plain URLs invented in the report cannot authorize ingestion. Normalize aliases and tracking parameters; cap retained candidates at the requested limit.
+   Verify the reported search count when present. When it is absent/null, require 1–15 provider-supplied citation annotations, each containing a supported event-listing URL. The request's `max_uses`, `max_tool_calls`, and result limits remain the server-side bounds.
+3. Intersect individual event URLs named in the report with returned URL-citation annotations, preserving the report's numbered event order and selecting one primary listing per event section. Duplicate-platform/background citations and plain URLs invented in the report cannot become candidates. Normalize aliases and tracking parameters; cap retained candidates at the requested limit.
 4. Save the research report and consulted URLs privately in the search run. Persist candidate sources before extraction.
 5. Make one tool-free structured-output request to extract fields with supporting quotes from that report.
 6. Validate title, date/time zone, relevance, city, format, and date window. Save usable candidates as drafts; retain incomplete sources unlinked with a diagnostic code.
@@ -43,11 +44,11 @@ The checked-in default is in `config/ingestion.json`:
 
 ```json
 {
-  "model": "openai/gpt-4.1"
+  "model": "openai/gpt-5.6-luna"
 }
 ```
 
-This is an editable starting default, not a claim that it is optimal or live-verified. Set it to an explicit OpenRouter `vendor/model-id` whose endpoint supports tool calling and JSON-schema structured outputs. Requests require parameter support and disable provider fallbacks; an incompatible model fails rather than silently switching models or dropping the requested schema.
+Luna is the current working default based on its expected price/performance, not a claim that it is optimal or end-to-end verified. Set it to an explicit OpenRouter `vendor/model-id` whose endpoint supports tool calling and JSON-schema structured outputs. Requests require parameter support and disable provider fallbacks; an incompatible model fails rather than silently switching models or dropping the requested schema.
 
 Override the model for one run with `--model`, or select another non-secret JSON configuration with `--config`:
 
@@ -117,7 +118,7 @@ The same model default/override applies in plan and live modes. No live run is l
 | Run cancellation deadline  | 5 minutes, followed by bounded database finalization      |
 | Automatic API retries      | None, including quota/rate errors                         |
 
-These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while executing searches within the first API request. Input, model output and hosted search can be billed, even when validation later rejects the result. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify the requested limits, but live enforcement still needs confirmation. The adapter requires reported search usage, rejects reported over-budget research, and never automatically retries credit exhaustion, rate limits or other failures. Exa is fixed as the search engine so switching LLMs cannot silently select native search with different limit behavior.
+These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while executing searches within the first API request. Input, model output and hosted search can be billed, even when validation later rejects the result. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify the requested limits, but live enforcement still needs confirmation. The adapter rejects reported zero/invalid/over-budget search counts. When the counter is missing, 1–15 valid provider citation annotations prove that bounded search results were returned, **not the actual number of queries**: enforcement of the three-query limit then relies on OpenRouter's documented `max_uses` and `max_tool_calls` behavior. Exa remains fixed so switching LLMs cannot silently select native search with different limit behavior. No credit exhaustion, rate limit or other failure is automatically retried.
 
 The application's paid requests go only to the fixed `https://openrouter.ai/api/v1/chat/completions` endpoint; redirects are rejected. It never fetches arbitrary model-provided URLs directly. Source access is handled by OpenRouter's hosted search tool. Search-page content is treated as untrusted data in both prompts; extraction has no tools, and model output cannot select database operations or publication status.
 
@@ -156,13 +157,28 @@ The command prints a safe final JSON summary and saves milestone snapshots to ig
 
 Diagnostics are captured before response validation and included in the final recovery snapshot even when research, extraction, or database finalization fails. A response ID or cost is retained only if actually returned and safely parsed; network errors, non-JSON or oversized responses, and non-success HTTP responses may have no such details. Missing or invalid numbers stay `null`, never zero. These figures are provider reports, not independently verified billing totals.
 
-- `search_usage_missing`: the documented search counter is absent or null; search execution is **unknown**, even if citation annotations are present.
+- `search_usage_missing`: the documented search counter is absent/null and no usable provider citations were returned.
 - `search_not_performed`: the counter explicitly reports zero searches.
 - Invalid counters still fail response validation; diagnostics mark `search_usage` as `invalid` when a malformed counter is present.
 
-None of these cases permits extraction or event creation. Search limits, citations, no-retry behavior, and publication safeguards are unchanged. Inspect diagnostics and account usage before authorizing another paid request. Old failed run records remain unchanged; the added logging cannot reconstruct an earlier discarded response.
+These errors stop extraction and event creation. Inspect diagnostics and account usage before authorizing another paid request. Old failed run records remain unchanged; neither diagnostics nor metadata can reconstruct an earlier discarded research report.
 
 The diagnostic fix passed lint, TypeScript, and all 78 offline tests, including missing/zero/invalid search usage, rejected-response cost retention, credential exclusion, and recovery after failed extraction or finalization. No paid retry was performed as part of this fix.
+
+### Compatibility when Chat Completions omits the search counter
+
+OpenRouter documents `usage.server_tool_use.web_search_requests`, but the second approved Luna response omitted it. Missing is not zero. The adapter now permits two explicit verification paths:
+
+- `search_verification: "usage_counter"`: the response reports between one and three searches. No metadata request is needed.
+- `search_verification: "bounded_citations"`: the counter is missing/null and the completed response includes 1–15 provider-generated URL-citation annotations. At least one citation must canonicalize to an individual HTTPS listing on the explicit Luma, Meetup, or Eventbrite allowlist. Other citations do not become candidates. Plain report text alone and excessive or entirely unusable citation sets fail before extraction.
+
+The fallback records `search_usage: "missing"` and `search_tool_calls: null`; it **does not infer query counts from citations, results, or price**. The three-search request limits, two-request ceiling, extraction schema, source allowlist, draft-only writes, and manual publication requirement remain unchanged. This replaces mandatory query-count reporting with bounded, provider-supplied search evidence when that reporting is unavailable; it is not an independent audit of how many searches the server executed.
+
+The compatibility change is covered by offline regression tests for missing counters, bounded citations, invalid/unsupported citations, excessive results, unchanged API limits, and draft-only persistence. The existing Luna response has exactly the evidence shape this fallback accepts. An explicitly approved end-to-end live check is still needed before claiming live compatibility.
+
+The first end-to-end Luna run after enabling bounded citations successfully persisted three source observations but wrote no event drafts. Inspection found that citation order had selected one background URL absent from the three-event report. Source selection now intersects annotated listing URLs with URLs in the report and preserves report order.
+
+The next run returned all candidates, exposing two further issues: the report said local times lacked an explicit timezone, so extraction left every timestamp null; and two platforms for one event consumed two source slots. Research now requests exactly one primary cited listing in each numbered event section, and source selection enforces one primary listing per section. Extraction applies an explicit ingestion policy: a stated clock time for a verified physical NYC venue is interpreted as `America/New_York`, with the date-correct offset. It still cannot invent a missing date, clock time, or NYC venue, and every result remains a draft requiring review.
 
 ### Run statuses
 
@@ -176,25 +192,26 @@ Only `succeeded` exits with code 0. A killed process, power loss, or database ou
 
 Common codes:
 
-| Code                                                  | Next action                                                                                            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `paid_api_not_enabled`                                | Expected safety gate; approve budget before setting the opt-in                                         |
-| `missing_ingestion_environment`                       | Supply the required server-side variables                                                              |
-| `invalid_ingestion_config`                            | Check the JSON file and explicit OpenRouter model ID; use `--model` for an override                    |
-| `openrouter_key_file_unavailable`                     | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
-| `invalid_openrouter_key_file`                         | Use one bare key, without JSON, quotes or a `Bearer` prefix                                            |
-| `provider_authentication_failed`                      | Check the OpenRouter credential locally; never paste it into diagnostics                               |
-| `search_usage_missing`                                | Search execution is unknown; inspect safe diagnostics and account usage before another paid attempt    |
-| `search_not_performed` / `search_tool_limit_exceeded` | Zero or excessive searches were reported; inspect model/tool compatibility before another paid attempt |
-| `provider_diagnostics_unavailable`                    | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
-| `local_database_required`                             | Use the local stack, not a hosted project                                                              |
-| `ingestion_migration_required`                        | Apply the pending local migration                                                                      |
-| `ingestion_preflight_failed`                          | Check the local stack, service-role access, and pending migration before any API spend                 |
-| `provider_quota_or_rate_limit`                        | Stop; inspect API quota/billing/rate limits before another paid run                                    |
-| `provider_incomplete` / `provider_request_failed`     | Inspect API usage; do not automatically retry                                                          |
-| `incomplete_event` / `candidate_missing`              | Inspect the private source/research report; leave the source unlinked                                  |
-| `run_finish_failed`                                   | Use the local checkpoint; the database run may still say running                                       |
-| `progress_write_failed`                               | Local recovery-file write failed; inspect the database summary                                         |
+| Code                                                       | Next action                                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `paid_api_not_enabled`                                     | Expected safety gate; approve budget before setting the opt-in                                         |
+| `missing_ingestion_environment`                            | Supply the required server-side variables                                                              |
+| `invalid_ingestion_config`                                 | Check the JSON file and explicit OpenRouter model ID; use `--model` for an override                    |
+| `openrouter_key_file_unavailable`                          | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
+| `invalid_openrouter_key_file`                              | Use one bare key, without JSON, quotes or a `Bearer` prefix                                            |
+| `provider_authentication_failed`                           | Check the OpenRouter credential locally; never paste it into diagnostics                               |
+| `search_usage_missing`                                     | Search execution is unknown; inspect safe diagnostics and account usage before another paid attempt    |
+| `invalid_search_citation` / `search_result_limit_exceeded` | Provider citations were unsupported or excessive; stop before extraction                               |
+| `search_not_performed` / `search_tool_limit_exceeded`      | Zero or excessive searches were reported; inspect model/tool compatibility before another paid attempt |
+| `provider_diagnostics_unavailable`                         | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
+| `local_database_required`                                  | Use the local stack, not a hosted project                                                              |
+| `ingestion_migration_required`                             | Apply the pending local migration                                                                      |
+| `ingestion_preflight_failed`                               | Check the local stack, service-role access, and pending migration before any API spend                 |
+| `provider_quota_or_rate_limit`                             | Stop; inspect API quota/billing/rate limits before another paid run                                    |
+| `provider_incomplete` / `provider_request_failed`          | Inspect API usage; do not automatically retry                                                          |
+| `incomplete_event` / `candidate_missing`                   | Inspect the private source/research report; leave the source unlinked                                  |
+| `run_finish_failed`                                        | Use the local checkpoint; the database run may still say running                                       |
+| `progress_write_failed`                                    | Local recovery-file write failed; inspect the database summary                                         |
 
 ## Live acceptance gate still pending
 

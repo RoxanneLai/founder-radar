@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import type { Json } from "../database.types.ts";
+import type { ProviderDiagnostic } from "./contracts.ts";
 import { IngestionError } from "./errors.ts";
 
 const count = z.number().int().nonnegative();
@@ -104,6 +105,7 @@ export async function readResponseJson(
 export function routerMetadata(
   response: RouterResponse,
   requestedModel: string,
+  diagnostic?: ProviderDiagnostic,
 ): Json {
   const usage = response.usage;
   return {
@@ -121,5 +123,8 @@ export function routerMetadata(
         }
       : null,
     search_tool_calls: usage?.server_tool_use?.web_search_requests ?? null,
+    ...(diagnostic?.search_verification
+      ? { search_verification: diagnostic.search_verification }
+      : {}),
   };
 }

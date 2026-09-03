@@ -4,8 +4,7 @@ export const options = {
   limit: 3,
 };
 export const url = "https://luma.com/founder-test";
-export const report =
-  "Founder Test is an in-person startup founder meetup in New York, NY, US. September 5, 2026 at 6 PM EDT, ending at 8 PM EDT. Hosted by Test Org. Tickets are 12.50 USD; registration open.";
+export const report = `Founder Test is an in-person startup founder meetup in New York, NY, US. September 5, 2026 at 6 PM EDT, ending at 8 PM EDT. Hosted by Test Org. Tickets are 12.50 USD; registration open. Source: ${url}.`;
 export const fact = (value, quote = report) => ({
   value,
   quote: value === null ? null : quote,
