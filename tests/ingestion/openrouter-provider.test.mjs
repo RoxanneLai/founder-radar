@@ -88,6 +88,87 @@ function providerWithResponses(
   return { requests, provider };
 }
 
+function legacyFlatCandidate(sourceUrl = url) {
+  const value = candidate(sourceUrl);
+  return {
+    source_url: value.source_url,
+    source_verification: value.source_verification,
+    title: value.title.value,
+    title_quote: value.title.quote,
+    starts_at: value.starts_at.value,
+    starts_at_quote: value.starts_at.quote,
+    ends_at: value.ends_at.value,
+    ends_at_quote: value.ends_at.quote,
+    time_zone: value.time_zone.value,
+    time_zone_quote: value.time_zone.quote,
+    venue_name: value.venue_name.value,
+    venue_name_quote: value.venue_name.quote,
+    city: value.city.value,
+    city_quote: value.city.quote,
+    region: value.region.value,
+    region_quote: value.region.quote,
+    country_code: value.country_code.value,
+    country_code_quote: value.country_code.quote,
+    event_format: value.event_format.value,
+    event_format_quote: value.event_format.quote,
+    founder_investor_relevance: value.relevant_to_founders.value,
+    founder_investor_relevance_quote: value.relevant_to_founders.quote,
+    organizer: value.organizer_name.value,
+    organizer_quote: value.organizer_name.quote,
+    price_amount_cents: value.price_amount_cents.value,
+    price_amount_cents_quote: value.price_amount_cents.quote,
+    currency_code: value.currency_code.value,
+    currency_code_quote: value.currency_code.quote,
+    registration_status: value.registration_status.value,
+    registration_status_quote: value.registration_status.quote,
+  };
+}
+
+function legacyFlatRejection(sourceUrl = url) {
+  const value = legacyFlatCandidate(sourceUrl);
+  value.source_verification = { status: "rejected", reason: "failed_fetch" };
+  for (const key of Object.keys(value)) {
+    if (key !== "source_url" && key !== "source_verification")
+      value[key] = null;
+  }
+  return value;
+}
+
+function legacyNestedCandidate(sourceUrl = url) {
+  const value = candidate(sourceUrl);
+  return {
+    source_url: value.source_url,
+    source_verification: value.source_verification,
+    title: value.title,
+    starts_at: value.starts_at,
+    ends_at: value.ends_at,
+    time_zone: value.time_zone,
+    venue: value.venue_name,
+    city: value.city,
+    region: value.region,
+    country_code: value.country_code,
+    event_format: value.event_format,
+    founder_investor_relevance: {
+      value: "Useful to founders and investors",
+      quote: value.relevant_to_founders.quote,
+    },
+    organizer: value.organizer_name,
+    price_amount_cents: value.price_amount_cents,
+    currency_code: value.currency_code,
+    registration_status: value.registration_status,
+  };
+}
+
+function legacyNestedRejection(sourceUrl = url) {
+  const value = legacyNestedCandidate(sourceUrl);
+  value.source_verification = { status: "rejected", reason: "failed_fetch" };
+  for (const key of Object.keys(value)) {
+    if (key !== "source_url" && key !== "source_verification")
+      value[key] = { value: null, quote: null };
+  }
+  return value;
+}
+
 test("OpenRouter sends bounded search and source-fetched structured extraction offline", async () => {
   const { provider, requests } = providerWithResponses(
     [
@@ -176,6 +257,20 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     "usage_counter",
   );
   assert.equal(provider.getDiagnostics()[1].extraction_candidate_count, 1);
+  assert.equal(
+    provider.getDiagnostics()[1].extraction_candidate_format,
+    "canonical",
+  );
+  assert.equal(provider.getDiagnostics()[1].extraction_schema_valid_count, 1);
+  assert.equal(provider.getDiagnostics()[1].extraction_source_match_count, 1);
+  assert.equal(
+    provider.getDiagnostics()[1].extraction_duplicate_source_count,
+    0,
+  );
+  assert.equal(
+    provider.getDiagnostics()[1].extraction_untrusted_source_count,
+    0,
+  );
   assert.equal(provider.getDiagnostics()[1].requested_effort, "low");
   assert.equal(
     provider.getDiagnostics()[1].extraction_shape,
@@ -317,6 +412,10 @@ test("invalid extraction shape records only a bounded candidate count", async ()
   const diagnostic = provider.getDiagnostics()[0];
   assert.equal(diagnostic.extraction_shape, "candidates_object");
   assert.equal(diagnostic.extraction_candidate_count, 2);
+  assert.equal(diagnostic.extraction_schema_valid_count, 2);
+  assert.equal(diagnostic.extraction_source_match_count, 1);
+  assert.equal(diagnostic.extraction_duplicate_source_count, 1);
+  assert.equal(diagnostic.extraction_untrusted_source_count, 0);
   assert.ok(!JSON.stringify(diagnostic).includes("Other"));
   assert.ok(!JSON.stringify(diagnostic).includes(url));
 });
@@ -366,6 +465,150 @@ test("strict local validation accepts only narrow candidate-envelope aliases", a
     );
     assert.equal(provider.getDiagnostics()[0].extraction_shape, "invalid");
     assert.equal(provider.getDiagnostics()[0].extraction_candidate_count, null);
+    assert.equal(
+      provider.getDiagnostics()[0].extraction_candidate_format,
+      null,
+    );
+    assert.equal(
+      provider.getDiagnostics()[0].extraction_schema_valid_count,
+      null,
+    );
+    assert.equal(
+      provider.getDiagnostics()[0].extraction_source_match_count,
+      null,
+    );
+  }
+});
+
+test("strict legacy flat candidates normalize into the canonical schema", async () => {
+  const second = "https://luma.com/second-event";
+  const sources = selectSources([url, second], 3);
+  const value = extractionResponse(
+    JSON.stringify([legacyFlatCandidate(), legacyFlatRejection(second)]),
+  );
+  delete value.usage.server_tool_use.web_fetch_requests;
+  const { provider } = providerWithResponses([value]);
+  const extracted = await provider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.deepEqual(extracted.candidates[0].title, {
+    value: "Founder Test",
+    quote: report,
+  });
+  assert.deepEqual(extracted.candidates[0].organizer_name, {
+    value: "Test Org",
+    quote: report,
+  });
+  assert.deepEqual(extracted.candidates[0].address_line, {
+    value: null,
+    quote: null,
+  });
+  assert.deepEqual(extracted.candidates[1].source_verification, {
+    status: "rejected",
+    reason: "source_fetch_failed",
+  });
+  const [diagnostic] = provider.getDiagnostics();
+  assert.equal(diagnostic.extraction_candidate_format, "legacy_flat");
+  assert.equal(diagnostic.extraction_schema_valid_count, 2);
+  assert.equal(diagnostic.extraction_source_match_count, 2);
+  assert.equal(
+    diagnostic.fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+});
+
+test("legacy flat compatibility rejects extra keys and inconsistent verdicts", async () => {
+  const extra = { ...legacyFlatCandidate(), extra: "not allowed" };
+  const inconsistent = legacyFlatRejection();
+  inconsistent.title = "Invented";
+  for (const candidateValue of [extra, inconsistent]) {
+    const value = extractionResponse(JSON.stringify([candidateValue]));
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider } = providerWithResponses([value]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        selectSources([url], 3),
+        options,
+        signal,
+      ),
+      { code: "source_fetch_usage_missing" },
+    );
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.extraction_candidate_format, "invalid");
+    assert.equal(diagnostic.extraction_schema_valid_count, 0);
+    assert.ok(!JSON.stringify(diagnostic).includes("Invented"));
+  }
+});
+
+test("strict legacy nested candidates normalize into the canonical schema", async () => {
+  const second = "https://luma.com/second-event";
+  const sources = selectSources([url, second], 3);
+  const value = extractionResponse(
+    JSON.stringify([legacyNestedCandidate(), legacyNestedRejection(second)]),
+  );
+  delete value.usage.server_tool_use.web_fetch_requests;
+  const { provider } = providerWithResponses([value]);
+  const extracted = await provider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.deepEqual(extracted.candidates[0].relevant_to_founders, {
+    value: true,
+    quote: report,
+  });
+  assert.deepEqual(extracted.candidates[0].venue_name, {
+    value: null,
+    quote: null,
+  });
+  assert.deepEqual(extracted.candidates[0].organizer_name, {
+    value: "Test Org",
+    quote: report,
+  });
+  assert.deepEqual(extracted.candidates[0].address_line, {
+    value: null,
+    quote: null,
+  });
+  assert.deepEqual(extracted.candidates[1].source_verification, {
+    status: "rejected",
+    reason: "source_fetch_failed",
+  });
+  const [diagnostic] = provider.getDiagnostics();
+  assert.equal(diagnostic.extraction_candidate_format, "legacy_nested");
+  assert.equal(diagnostic.extraction_schema_valid_count, 2);
+  assert.equal(diagnostic.extraction_source_match_count, 2);
+  assert.equal(
+    diagnostic.fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+});
+
+test("legacy nested compatibility rejects extra keys and inconsistent verdicts", async () => {
+  const extra = { ...legacyNestedCandidate(), extra: "not allowed" };
+  const inconsistent = legacyNestedRejection();
+  inconsistent.title = { value: "Invented", quote: report };
+  for (const candidateValue of [extra, inconsistent]) {
+    const value = extractionResponse(JSON.stringify([candidateValue]));
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider } = providerWithResponses([value]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        selectSources([url], 3),
+        options,
+        signal,
+      ),
+      { code: "source_fetch_usage_missing" },
+    );
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.extraction_candidate_format, "invalid");
+    assert.equal(diagnostic.extraction_schema_valid_count, 0);
+    assert.ok(!JSON.stringify(diagnostic).includes("Invented"));
   }
 });
 
@@ -665,15 +908,30 @@ test("complete source verdicts safely bridge a missing fetch counter", async () 
   );
 });
 
-test("missing fetch counters reject partial, duplicate and untrusted verdict coverage", async () => {
+test("missing fetch counters safely diagnose partial, invalid, duplicate and untrusted coverage", async () => {
   const second = "https://luma.com/second-event";
   const sources = selectSources([url, second], 3);
-  for (const [candidates, expected] of [
-    [[candidate()], "invalid_extraction_shape"],
-    [[candidate(), candidate()], "source_fetch_usage_missing"],
+  const malformed = { ...candidate(), title: "not-a-fact" };
+  for (const [candidates, expected, counts] of [
+    [
+      [candidate()],
+      "invalid_extraction_shape",
+      { valid: 1, matched: 1, duplicates: 0, untrusted: 0 },
+    ],
+    [
+      [malformed, rejectedCandidate(second)],
+      "source_fetch_usage_missing",
+      { valid: 1, matched: 2, duplicates: 0, untrusted: 0 },
+    ],
+    [
+      [candidate(), candidate()],
+      "source_fetch_usage_missing",
+      { valid: 2, matched: 1, duplicates: 1, untrusted: 0 },
+    ],
     [
       [candidate(), rejectedCandidate("https://luma.com/untrusted")],
       "source_fetch_usage_missing",
+      { valid: 2, matched: 1, duplicates: 0, untrusted: 1 },
     ],
   ]) {
     const value = extractionResponse(JSON.stringify({ candidates }));
@@ -688,7 +946,20 @@ test("missing fetch counters reject partial, duplicate and untrusted verdict cov
       ),
       { code: expected },
     );
-    assert.equal(provider.getDiagnostics()[0].fetch_verification, undefined);
+    const diagnostic = provider.getDiagnostics()[0];
+    assert.equal(diagnostic.fetch_verification, undefined);
+    assert.equal(diagnostic.extraction_schema_valid_count, counts.valid);
+    assert.equal(diagnostic.extraction_source_match_count, counts.matched);
+    assert.equal(
+      diagnostic.extraction_duplicate_source_count,
+      counts.duplicates,
+    );
+    assert.equal(
+      diagnostic.extraction_untrusted_source_count,
+      counts.untrusted,
+    );
+    assert.ok(!JSON.stringify(diagnostic).includes(url));
+    assert.ok(!JSON.stringify(diagnostic).includes(second));
   }
 });
 

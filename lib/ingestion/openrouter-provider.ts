@@ -42,6 +42,229 @@ export const API_LIMITS = {
   responseBytes: 1048576,
 } as const;
 
+const flatText = z.string().nullable();
+const flatQuote = z.string().nullable();
+const flatVerificationReason = z
+  .enum([
+    "source_fetch_failed",
+    "source_not_event_listing",
+    "source_page_conflict",
+    "source_page_past",
+    "source_page_cancelled",
+    "source_page_virtual_only",
+    "source_evidence_insufficient",
+    "failed_fetch",
+  ])
+  .nullable();
+const flatCandidateSchema = z
+  .object({
+    source_url: z.string(),
+    source_verification: z
+      .object({
+        status: z.enum(["verified", "rejected"]),
+        reason: flatVerificationReason,
+      })
+      .strict(),
+    title: flatText,
+    title_quote: flatQuote,
+    starts_at: flatText,
+    starts_at_quote: flatQuote,
+    ends_at: flatText,
+    ends_at_quote: flatQuote,
+    time_zone: flatText,
+    time_zone_quote: flatQuote,
+    venue_name: flatText,
+    venue_name_quote: flatQuote,
+    city: flatText,
+    city_quote: flatQuote,
+    region: flatText,
+    region_quote: flatQuote,
+    country_code: flatText,
+    country_code_quote: flatQuote,
+    event_format: flatText,
+    event_format_quote: flatQuote,
+    founder_investor_relevance: z.boolean().nullable(),
+    founder_investor_relevance_quote: flatQuote,
+    organizer: flatText,
+    organizer_quote: flatQuote,
+    price_amount_cents: z.number().int().min(0).max(2147483647).nullable(),
+    price_amount_cents_quote: flatQuote,
+    currency_code: flatText,
+    currency_code_quote: flatQuote,
+    registration_status: flatText,
+    registration_status_quote: flatQuote,
+  })
+  .strict()
+  .superRefine((candidate, context) => {
+    const facts = [
+      [candidate.title, candidate.title_quote],
+      [candidate.starts_at, candidate.starts_at_quote],
+      [candidate.ends_at, candidate.ends_at_quote],
+      [candidate.time_zone, candidate.time_zone_quote],
+      [candidate.venue_name, candidate.venue_name_quote],
+      [candidate.city, candidate.city_quote],
+      [candidate.region, candidate.region_quote],
+      [candidate.country_code, candidate.country_code_quote],
+      [candidate.event_format, candidate.event_format_quote],
+      [
+        candidate.founder_investor_relevance,
+        candidate.founder_investor_relevance_quote,
+      ],
+      [candidate.organizer, candidate.organizer_quote],
+      [candidate.price_amount_cents, candidate.price_amount_cents_quote],
+      [candidate.currency_code, candidate.currency_code_quote],
+      [candidate.registration_status, candidate.registration_status_quote],
+    ];
+    const rejected = candidate.source_verification.status === "rejected";
+    const invalid = rejected
+      ? candidate.source_verification.reason === null ||
+        facts.some(([value, quote]) => value !== null || quote !== null)
+      : candidate.source_verification.reason !== null;
+    if (invalid)
+      context.addIssue({
+        code: "custom",
+        message: "inconsistent flat source verification verdict",
+      });
+  });
+
+const legacyNestedTextFact = z
+  .object({ value: z.string().nullable(), quote: z.string().nullable() })
+  .strict();
+const legacyNestedPriceFact = z
+  .object({
+    value: z.number().int().min(0).max(2147483647).nullable(),
+    quote: z.string().nullable(),
+  })
+  .strict();
+const legacyNestedCandidateSchema = z
+  .object({
+    source_url: z.string(),
+    source_verification: z
+      .object({
+        status: z.enum(["verified", "rejected"]),
+        reason: flatVerificationReason,
+      })
+      .strict(),
+    title: legacyNestedTextFact,
+    starts_at: legacyNestedTextFact,
+    ends_at: legacyNestedTextFact,
+    time_zone: legacyNestedTextFact,
+    venue: legacyNestedTextFact,
+    city: legacyNestedTextFact,
+    region: legacyNestedTextFact,
+    country_code: legacyNestedTextFact,
+    event_format: legacyNestedTextFact,
+    founder_investor_relevance: legacyNestedTextFact,
+    organizer: legacyNestedTextFact,
+    price_amount_cents: legacyNestedPriceFact,
+    currency_code: legacyNestedTextFact,
+    registration_status: legacyNestedTextFact,
+  })
+  .strict();
+
+function fact<T>(value: T | null, quote: string | null) {
+  return { value, quote };
+}
+
+function canonicalCandidate(value: unknown): {
+  value: unknown;
+  format: "canonical" | "legacy_flat" | "legacy_nested" | "invalid";
+} {
+  if (candidateSchema.safeParse(value).success)
+    return { value, format: "canonical" };
+  const flat = flatCandidateSchema.safeParse(value);
+  if (flat.success) return canonicalFlatCandidate(flat.data, value);
+  const nested = legacyNestedCandidateSchema.safeParse(value);
+  if (nested.success) return canonicalNestedCandidate(nested.data, value);
+  return { value, format: "invalid" };
+}
+
+function canonicalReason(reason: z.infer<typeof flatVerificationReason>) {
+  return reason === "failed_fetch" ? "source_fetch_failed" : reason;
+}
+
+function canonicalFlatCandidate(
+  candidate: z.infer<typeof flatCandidateSchema>,
+  original: unknown,
+): {
+  value: unknown;
+  format: "legacy_flat" | "invalid";
+} {
+  const reason = canonicalReason(candidate.source_verification.reason);
+  const canonical = {
+    source_url: candidate.source_url,
+    source_verification: {
+      status: candidate.source_verification.status,
+      reason,
+    },
+    relevant_to_founders: fact(
+      candidate.founder_investor_relevance,
+      candidate.founder_investor_relevance_quote,
+    ),
+    title: fact(candidate.title, candidate.title_quote),
+    organizer_name: fact(candidate.organizer, candidate.organizer_quote),
+    starts_at: fact(candidate.starts_at, candidate.starts_at_quote),
+    ends_at: fact(candidate.ends_at, candidate.ends_at_quote),
+    time_zone: fact(candidate.time_zone, candidate.time_zone_quote),
+    venue_name: fact(candidate.venue_name, candidate.venue_name_quote),
+    address_line: fact(null, null),
+    city: fact(candidate.city, candidate.city_quote),
+    region: fact(candidate.region, candidate.region_quote),
+    country_code: fact(candidate.country_code, candidate.country_code_quote),
+    event_format: fact(candidate.event_format, candidate.event_format_quote),
+    price_amount_cents: fact(
+      candidate.price_amount_cents,
+      candidate.price_amount_cents_quote,
+    ),
+    currency_code: fact(candidate.currency_code, candidate.currency_code_quote),
+    registration_status: fact(
+      candidate.registration_status,
+      candidate.registration_status_quote,
+    ),
+  };
+  return candidateSchema.safeParse(canonical).success
+    ? { value: canonical, format: "legacy_flat" }
+    : { value: original, format: "invalid" };
+}
+
+function canonicalNestedCandidate(
+  candidate: z.infer<typeof legacyNestedCandidateSchema>,
+  original: unknown,
+): {
+  value: unknown;
+  format: "legacy_nested" | "invalid";
+} {
+  const relevance = candidate.founder_investor_relevance;
+  const canonical = {
+    source_url: candidate.source_url,
+    source_verification: {
+      status: candidate.source_verification.status,
+      reason: canonicalReason(candidate.source_verification.reason),
+    },
+    relevant_to_founders: fact(
+      relevance.value === null ? null : true,
+      relevance.quote,
+    ),
+    title: candidate.title,
+    organizer_name: candidate.organizer,
+    starts_at: candidate.starts_at,
+    ends_at: candidate.ends_at,
+    time_zone: candidate.time_zone,
+    venue_name: candidate.venue,
+    address_line: fact(null, null),
+    city: candidate.city,
+    region: candidate.region,
+    country_code: candidate.country_code,
+    event_format: candidate.event_format,
+    price_amount_cents: candidate.price_amount_cents,
+    currency_code: candidate.currency_code,
+    registration_status: candidate.registration_status,
+  };
+  return candidateSchema.safeParse(canonical).success
+    ? { value: canonical, format: "legacy_nested" }
+    : { value: original, format: "invalid" };
+}
+
 /** Intersect trusted annotations with canonical listing URLs actually named in the report. */
 function reportedSourceUrls(response: RouterResponse): string[] {
   const message = response.choices[0].message;
@@ -79,15 +302,18 @@ function reportedSourceUrls(response: RouterResponse): string[] {
   return [...selected];
 }
 
-function coversEverySource(
+function hasCompleteSourceCoverage(
   candidates: unknown[],
   sources: SourceIdentity[],
+  diagnostic: ProviderDiagnostic,
 ): boolean {
-  if (candidates.length !== sources.length) return false;
   const expected = new Set(sources.map((source) => source.source_url));
   const seen = new Set<string>();
+  let schemaValid = 0;
+  let duplicates = 0;
+  let untrusted = 0;
   for (const candidate of candidates) {
-    if (!candidateSchema.safeParse(candidate).success) return false;
+    if (candidateSchema.safeParse(candidate).success) schemaValid += 1;
     const url =
       candidate &&
       typeof candidate === "object" &&
@@ -95,10 +321,27 @@ function coversEverySource(
       typeof candidate.source_url === "string"
         ? sourceIdentity(candidate.source_url)?.source_url
         : null;
-    if (!url || !expected.has(url) || seen.has(url)) return false;
+    if (!url || !expected.has(url)) {
+      untrusted += 1;
+      continue;
+    }
+    if (seen.has(url)) {
+      duplicates += 1;
+      continue;
+    }
     seen.add(url);
   }
-  return seen.size === expected.size;
+  diagnostic.extraction_schema_valid_count = schemaValid;
+  diagnostic.extraction_source_match_count = seen.size;
+  diagnostic.extraction_duplicate_source_count = duplicates;
+  diagnostic.extraction_untrusted_source_count = untrusted;
+  return (
+    candidates.length === sources.length &&
+    schemaValid === candidates.length &&
+    seen.size === expected.size &&
+    duplicates === 0 &&
+    untrusted === 0
+  );
 }
 
 function extractionCandidates(
@@ -142,7 +385,15 @@ function extractionCandidates(
   }
   if (candidates && candidates.length <= 100)
     diagnostic.extraction_candidate_count = candidates.length;
-  return candidates;
+  if (!candidates) return null;
+  const converted = candidates.map(canonicalCandidate);
+  const formats = new Set(converted.map((candidate) => candidate.format));
+  diagnostic.extraction_candidate_format = formats.has("invalid")
+    ? "invalid"
+    : formats.size === 1
+      ? (converted[0]?.format ?? "invalid")
+      : "mixed";
+  return converted.map((candidate) => candidate.value);
 }
 
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
@@ -398,13 +649,16 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     }
     const responseDiagnostic = this.diagnostics.at(-1)!;
     const candidates = extractionCandidates(parsed, responseDiagnostic);
+    const completeSourceCoverage = candidates
+      ? hasCompleteSourceCoverage(candidates, sources, responseDiagnostic)
+      : false;
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
     if (!candidates || candidates.length !== sources.length)
       throw new IngestionError("invalid_extraction_shape");
     const verifiedDiagnostic = this.verifyExtractionFetch(
       response,
       sources.length,
-      coversEverySource(candidates, sources),
+      completeSourceCoverage,
     );
     return {
       candidates,

@@ -100,6 +100,11 @@ export function routerDiagnostic(
     fetch_tool_calls: fetchCount,
     extraction_shape: null,
     extraction_candidate_count: null,
+    extraction_schema_valid_count: null,
+    extraction_source_match_count: null,
+    extraction_duplicate_source_count: null,
+    extraction_untrusted_source_count: null,
+    extraction_candidate_format: null,
     citation_count: Array.isArray(message.annotations)
       ? message.annotations.filter(
           (item) => record(item).type === "url_citation",

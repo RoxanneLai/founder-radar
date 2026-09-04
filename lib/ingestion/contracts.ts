@@ -164,6 +164,12 @@ export type ProviderDiagnostic = {
     | "invalid"
     | null;
   extraction_candidate_count: number | null;
+  extraction_schema_valid_count: number | null;
+  extraction_source_match_count: number | null;
+  extraction_duplicate_source_count: number | null;
+  extraction_untrusted_source_count: number | null;
+  extraction_candidate_format:
+    "canonical" | "legacy_flat" | "legacy_nested" | "mixed" | "invalid" | null;
   citation_count: number | null;
   tool_call_count: number | null;
   content_characters: number | null;
