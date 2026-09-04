@@ -7,6 +7,7 @@ import type {
   IngestionRepository,
   Observation,
   RunSummary,
+  ReasoningEffort,
   SaveResult,
   SearchOptions,
 } from "./contracts.ts";
@@ -16,6 +17,7 @@ export function createIngestionRepository(
   url: string,
   key: string,
   model: string,
+  effort: ReasoningEffort,
 ): IngestionRepository {
   const client = createClient<Database>(url, key, {
     auth: {
@@ -34,16 +36,22 @@ export function createIngestionRepository(
         }),
     },
   });
-  return new SupabaseIngestionRepository(client, model);
+  return new SupabaseIngestionRepository(client, model, effort);
 }
 
 export class SupabaseIngestionRepository implements IngestionRepository {
   private readonly client: SupabaseClient<Database>;
   private readonly model: string | null;
+  private readonly effort: ReasoningEffort | null;
 
-  constructor(client: SupabaseClient<Database>, model: string | null = null) {
+  constructor(
+    client: SupabaseClient<Database>,
+    model: string | null = null,
+    effort: ReasoningEffort | null = null,
+  ) {
     this.client = client;
     this.model = model;
+    this.effort = effort;
   }
 
   async start(options: SearchOptions): Promise<string> {
@@ -59,7 +67,11 @@ export class SupabaseIngestionRepository implements IngestionRepository {
         agent_name: "founder-radar-discovery",
         agent_version: "0.1.0",
         provider: "openrouter-web-search",
-        search_parameters: { ...options, model: this.model },
+        search_parameters: {
+          ...options,
+          model: this.model,
+          effort: this.effort,
+        },
         status: "running",
       })
       .select("id")

@@ -20,7 +20,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator i
 npm run ingest -- --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent now uses OpenRouter, with the model default in `config/ingestion.json` and a per-run `--model vendor/model-id` override. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
+After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent now uses OpenRouter, with model and reasoning-effort defaults in `config/ingestion.json` and independent per-run `--model` and `--effort` overrides. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
 
 ## Run the web application
 

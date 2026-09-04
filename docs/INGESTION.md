@@ -27,7 +27,7 @@ This version stores **model-generated web-search reports**, not page archives. `
 
 Review drafts against their original links before publishing. The fetch gate rejects reported conflicts and missing fetches, but it is not an independent page archive or a guarantee against model error. Search is not an exhaustive provider feed. Same-event deduplication across platforms and recurring-event identity remain future work.
 
-Official references: [OpenRouter server-side web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [OpenRouter server-side web fetch](https://openrouter.ai/docs/guides/features/server-tools/web-fetch), [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [Supabase RPC](https://supabase.com/docs/reference/javascript/rpc). OpenRouter currently labels server tools beta; real-account behavior remains part of the live acceptance test.
+Official references: [OpenRouter server-side web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [OpenRouter server-side web fetch](https://openrouter.ai/docs/guides/features/server-tools/web-fetch), [OpenRouter reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [Supabase RPC](https://supabase.com/docs/reference/javascript/rpc). OpenRouter currently labels server tools beta; real-account behavior remains part of the live acceptance test.
 
 ## Start safely: no-network plan
 
@@ -38,28 +38,29 @@ npm ci
 npm run ingest -- --limit 3
 ```
 
-Without `--live`, the command reads the non-secret model configuration and prints the selected model, proposed search and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
+Without `--live`, the command reads the non-secret model configuration and prints the selected model and reasoning effort, proposed search, and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
 
-## Select the backend model
+## Select the backend model and effort
 
 The checked-in default is in `config/ingestion.json`:
 
 ```json
 {
-  "model": "openai/gpt-5.6-luna"
+  "model": "openai/gpt-5.6-luna",
+  "effort": "medium"
 }
 ```
 
-Luna is the current working default based on its expected price/performance, not a claim that it is optimal or end-to-end verified. Set it to an explicit OpenRouter `vendor/model-id` whose endpoint supports tool calling and JSON-schema structured outputs. Requests require parameter support and disable provider fallbacks; an incompatible model fails rather than silently switching models or dropping the requested schema.
+Luna at medium effort is the current working default based on its expected price/performance, not a claim that it is optimal or end-to-end verified. Set `model` to an explicit OpenRouter `vendor/model-id` whose endpoint supports reasoning, tool calling, and JSON-schema structured outputs. `effort` must be one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Model-specific support differs. OpenRouter may map an unsupported gateway effort to the nearest supported level, so comparisons must verify the exact model/effort pair in the current model catalog first. Requests require parameter support and disable provider fallbacks; an incompatible model fails rather than silently switching models or dropping required parameters.
 
-Override the model for one run with `--model`, or select another non-secret JSON configuration with `--config`:
+Override either setting for one run with `--model` and `--effort`, or select another non-secret JSON configuration with `--config`. When testing another model, normally specify both overrides:
 
 ```bash
-npm run ingest -- --model openai/gpt-4.1-mini --limit 3
-npm run ingest -- --config config/ingestion.json --model openai/gpt-4.1 --limit 3
+npm run ingest -- --model openai/gpt-oss-20b --effort low --limit 3
+npm run ingest -- --config config/ingestion.json --model deepseek/deepseek-v4-flash-0731 --effort high --limit 3
 ```
 
-Precedence is **`--model` over the selected configuration's `model`**. Both research and extraction use that selection. `OPENAI_MODEL` and other model environment variables are not used. The configuration must exist and contain only a valid `model` field, even when overriding it. Missing/malformed files and duplicate CLI flags stop before any API request. Auto-router model IDs and the deprecated `:online` suffix are rejected, so search stays in the explicitly bounded server tool.
+Precedence is independently **CLI override over the selected configuration** for model and effort. Both research and extraction use the effective pair and send `reasoning: { effort, exclude: true }`. The model may reason internally, but no reasoning trace is requested or retained. Reasoning tokens count as billable output tokens; an allowlisted provider-reported reasoning-token count is retained when valid and otherwise remains `null`. `OPENAI_MODEL`, effort environment variables, and other model environment variables are not used. The configuration must exist and contain exactly valid `model` and `effort` fields, even when overriding either value. Missing/malformed files and duplicate CLI flags stop before database, key, or API access. Auto-router model IDs and the deprecated `:online` suffix are rejected, so search stays in the explicitly bounded server tool.
 
 Configuration paths are relative to the working directory (absolute paths also work). The credential path is always `./OPENROUTER.key`, not relative to a custom config file. Do not put keys, a custom API URL, or a paid opt-in into the JSON file.
 
@@ -79,7 +80,7 @@ Replace these example dates when they are no longer current. The start is inclus
 
 ## Prepare live mode
 
-1. Review the plan's model and agree on a small **separate OpenRouter testing budget**, including hosted search and model usage. Supplying a key does not itself authorize a live run.
+1. Review the plan's model and effort and agree on a small **separate OpenRouter testing budget**, including hosted search, reasoning output, and other model usage. Supplying a key does not itself authorize a live run.
 2. Start Docker Desktop and the local stack with `npm run db:start`.
 3. Apply pending local migrations using `npm run db:migrate`. This adds the ingestion RPC and attempt-diagnostic columns without resetting data. Do not use `db:reset` on a database containing data you want to keep.
    The local configuration now enables authentication with sign-ups disabled. After upgrading from the old auth-disabled setup, use `npm run db:stop` then `npm run db:start` to activate it without deleting data. Obtain the local service-role key from `npm run db:status` in your own Terminal; keep the output private. The dashboard uses a different, anonymous/public key.
@@ -99,7 +100,7 @@ The command reads model configuration and `OPENROUTER.key` separately from these
 npm run ingest -- --live --limit 3
 ```
 
-The same model default/override applies in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
+The same model/effort defaults and independent overrides apply in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
 
 ## Bounds and failure behavior
 
@@ -128,7 +129,7 @@ The application's requests go only to the fixed `https://openrouter.ai/api/v1/ch
 
 Failed or discovery-only observations preserve earlier successful content, retrieval time, and event links. New valid observations update draft facts. Published, archived, and fixture events are not rewritten by the agent. An older observation cannot overwrite a newer one. Conflicting URL/external-ID identities are rejected for review, not automatically merged.
 
-`last_attempt_at` and `last_attempt_error` are distinct from the last successful evidence snapshot. New runs are labeled `openrouter-web-search`, with the selected model saved in `search_parameters` before paid requests. Per-run requested/returned model, response ID, token usage, provider-reported cost when present, report, consulted URLs, and summary live in private `search_runs.metadata`. Missing usage fields stay unknown. The source stores the latest successful candidate snapshot; it is not an append-only observation history.
+`last_attempt_at` and `last_attempt_error` are distinct from the last successful evidence snapshot. New runs are labeled `openrouter-web-search`, with the selected model and requested effort saved in `search_parameters` before paid requests. Per-run requested model and effort, returned model, response ID, input/output/reasoning/total token usage, provider-reported cost when present, report, consulted URLs, and summary live in private `search_runs.metadata`. Missing or malformed reasoning-token usage remains `null`; zero is retained only when explicitly reported. Provider usage and cost are unverified diagnostics. The source stores the latest successful candidate snapshot; it is not an append-only observation history.
 
 ## Verification without paid calls
 
@@ -157,7 +158,7 @@ The command prints a safe final JSON summary and saves milestone snapshots to ig
 
 ### Safe diagnostics for rejected responses
 
-`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, HTTP status, bounded response ID and model identifiers, known finish reason, search/fetch counts, token usage and provider-reported cost when available. Citation/tool-call counts, extraction candidate count, and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, fetched content, or raw errors. Reflected API credentials and key-like identifiers are excluded.
+`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, requested model and effort, HTTP status, bounded response ID and returned model identifier, known finish reason, search/fetch counts, token usage and provider-reported cost when available. Citation/tool-call counts, extraction candidate count, and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, fetched content, reasoning traces, or raw errors. Reflected API credentials and key-like identifiers are excluded.
 
 Diagnostics are captured before response validation and included in the final recovery snapshot even when research, extraction, or database finalization fails. A response ID or cost is retained only if actually returned and safely parsed; network errors, non-JSON or oversized responses, and non-success HTTP responses may have no such details. Missing or invalid numbers stay `null`, never zero. These figures are provider reports, not independently verified billing totals.
 
@@ -208,7 +209,7 @@ Common codes:
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `paid_api_not_enabled`                                     | Expected safety gate; approve budget before setting the opt-in                                         |
 | `missing_ingestion_environment`                            | Supply the required server-side variables                                                              |
-| `invalid_ingestion_config`                                 | Check the JSON file and explicit OpenRouter model ID; use `--model` for an override                    |
+| `invalid_ingestion_config`                                 | Check both JSON fields and the explicit OpenRouter model ID; use `--model` / `--effort` to override    |
 | `openrouter_key_file_unavailable`                          | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
 | `invalid_openrouter_key_file`                              | Use one bare key, without JSON, quotes or a `Bearer` prefix                                            |
 | `provider_authentication_failed`                           | Check the OpenRouter credential locally; never paste it into diagnostics                               |

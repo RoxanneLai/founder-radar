@@ -9,6 +9,7 @@ import {
   readOpenRouterKey,
 } from "../../lib/ingestion/local-config.ts";
 import { parseIngestionArgs } from "../../lib/ingestion/cli.ts";
+import { REASONING_EFFORTS } from "../../lib/ingestion/contracts.ts";
 
 async function directory(t) {
   await mkdir("codex-tmp", { recursive: true });
@@ -37,13 +38,16 @@ function runCli(cwd, args, env = {}) {
   );
 }
 
-test("checked-in model default and CLI override work without opening a key file", async (t) => {
-  assert.deepEqual(await readModelConfig(), { model: "openai/gpt-5.6-luna" });
+test("checked-in model and effort defaults have independent CLI precedence without key access", async (t) => {
+  assert.deepEqual(await readModelConfig(), {
+    model: "openai/gpt-5.6-luna",
+    effort: "medium",
+  });
   const dir = await directory(t);
   await mkdir(dir + "/config");
   await writeFile(
     dir + "/config/ingestion.json",
-    '{"model":"anthropic/test-model"}',
+    '{"model":"anthropic/test-model","effort":"high"}',
   );
   // A directory would fail key loading: even paid opt-in must not make a plan read it.
   await mkdir(dir + "/OPENROUTER.key");
@@ -53,15 +57,34 @@ test("checked-in model default and CLI override work without opening a key file"
   });
   assert.equal(plan.status, 0, plan.stderr);
   assert.equal(JSON.parse(plan.stdout).model, "anthropic/test-model");
+  assert.equal(JSON.parse(plan.stdout).effort, "high");
   assert.equal(JSON.parse(plan.stdout).paid_calls, false);
   assert.equal(JSON.parse(plan.stdout).writes, false);
   const override = runCli(dir, ["--model", "google/test-model"]);
   assert.equal(override.status, 0, override.stderr);
   assert.equal(JSON.parse(override.stdout).model, "google/test-model");
-  await writeFile(dir + "/other.json", '{"model":"meta-llama/test-model"}');
+  assert.equal(JSON.parse(override.stdout).effort, "high");
+  const effortOverride = runCli(dir, ["--effort", "low"]);
+  assert.equal(effortOverride.status, 0, effortOverride.stderr);
+  assert.equal(JSON.parse(effortOverride.stdout).model, "anthropic/test-model");
+  assert.equal(JSON.parse(effortOverride.stdout).effort, "low");
+  const both = runCli(dir, [
+    "--model",
+    "openai/test-model",
+    "--effort",
+    "minimal",
+  ]);
+  assert.equal(both.status, 0, both.stderr);
+  assert.equal(JSON.parse(both.stdout).model, "openai/test-model");
+  assert.equal(JSON.parse(both.stdout).effort, "minimal");
+  await writeFile(
+    dir + "/other.json",
+    '{"model":"meta-llama/test-model","effort":"xhigh"}',
+  );
   const custom = runCli(dir, ["--config", "other.json"]);
   assert.equal(custom.status, 0, custom.stderr);
   assert.equal(JSON.parse(custom.stdout).model, "meta-llama/test-model");
+  assert.equal(JSON.parse(custom.stdout).effort, "xhigh");
 });
 
 test("help needs no config or key; paid approval and database validation precede key access", async (t) => {
@@ -70,7 +93,10 @@ test("help needs no config or key; paid approval and database validation precede
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /OPENROUTER.key/);
   await mkdir(dir + "/config");
-  await writeFile(dir + "/config/ingestion.json", '{"model":"openai/gpt-4.1"}');
+  await writeFile(
+    dir + "/config/ingestion.json",
+    '{"model":"openai/gpt-4.1","effort":"medium"}',
+  );
   const blocked = runCli(dir, ["--live"]);
   assert.equal(blocked.status, 1);
   assert.match(blocked.stderr, /paid_api_not_enabled/);
@@ -86,6 +112,19 @@ test("help needs no config or key; paid approval and database validation precede
   assert.equal(missingKey.status, 1);
   assert.match(missingKey.stderr, /openrouter_key_file_unavailable/);
   assert.doesNotMatch(missingKey.stderr, /fake-test-only|unexpected network/);
+  await writeFile(
+    dir + "/config/ingestion.json",
+    '{"model":"openai/gpt-4.1","effort":"extreme"}',
+  );
+  const invalidConfig = runCli(dir, ["--live"], {
+    FOUNDER_RADAR_ALLOW_PAID_API: "1",
+  });
+  assert.equal(invalidConfig.status, 1);
+  assert.match(invalidConfig.stderr, /invalid_ingestion_config/);
+  assert.doesNotMatch(
+    invalidConfig.stderr,
+    /missing_ingestion_environment|OPENROUTER|unexpected network/,
+  );
 });
 
 test("config is strict, bounded and explicit; malformed config and ambiguous flags fail safely", async (t) => {
@@ -94,12 +133,16 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
   for (const text of [
     "not-json",
     '{"model":""}',
+    '{"model":"openai/gpt-4.1"}',
+    '{"effort":"low"}',
     '{"model":"gpt-4.1"}',
-    '{"model":"openai/gpt-4.1","apiKey":"secret"}',
-    '{"model":"openrouter/auto"}',
-    '{"model":"openai/gpt-4.1:online"}',
-    '{"model":"openai/gpt-4.1:online:free"}',
-    '{"model":"https://evil.test/model"}',
+    '{"model":"openai/gpt-4.1","effort":"medium","apiKey":"secret"}',
+    '{"model":"openrouter/auto","effort":"medium"}',
+    '{"model":"openai/gpt-4.1:online","effort":"medium"}',
+    '{"model":"openai/gpt-4.1:online:free","effort":"medium"}',
+    '{"model":"https://evil.test/model","effort":"medium"}',
+    '{"model":"openai/gpt-4.1","effort":""}',
+    '{"model":"openai/gpt-4.1","effort":"extreme"}',
     " ".repeat(16385),
   ]) {
     await writeFile(path, text);
@@ -108,7 +151,7 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
       /^IngestionError: invalid_ingestion_config$/,
     );
   }
-  await writeFile(path, '{"model":"openai/gpt-4.1"}');
+  await writeFile(path, '{"model":"openai/gpt-4.1","effort":"medium"}');
   await assert.rejects(
     readModelConfig(path, "bad-model"),
     /invalid_ingestion_config/,
@@ -117,12 +160,20 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
     readModelConfig(dir + "/missing"),
     /invalid_ingestion_config/,
   );
+  for (const effort of REASONING_EFFORTS) {
+    await writeFile(path, JSON.stringify({ model: "openai/gpt-4.1", effort }));
+    assert.equal((await readModelConfig(path)).effort, effort);
+  }
   for (const args of [
     ["--model", ""],
+    ["--effort", ""],
     ["--config", ""],
     ["--model"],
+    ["--effort"],
     ["--config"],
     ["--model", "a/b", "--model", "c/d"],
+    ["--effort", "low", "--effort", "high"],
+    ["--effort", "extreme"],
     ["--live", "--live"],
   ])
     assert.throws(() => parseIngestionArgs(args), /invalid_cli_arguments/);
@@ -130,6 +181,7 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
     parseIngestionArgs(["--model=google/test-model"]).model,
     "google/test-model",
   );
+  assert.equal(parseIngestionArgs(["--effort=high"]).effort, "high");
 });
 
 test("key file accepts one trimmed token, rejects unsafe files, and never echoes contents", async (t) => {

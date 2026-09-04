@@ -61,11 +61,16 @@ function extractionResponse(text, fetches = 1) {
   return response(text, 0, fetches);
 }
 
-function providerWithResponses(responses, model = "openai/gpt-4.1") {
+function providerWithResponses(
+  responses,
+  model = "openai/gpt-4.1",
+  effort = "low",
+) {
   const requests = [];
   const provider = new OpenRouterSearchProvider(
     key,
     model,
+    effort,
     async (input, init) => {
       requests.push({
         input: String(input),
@@ -97,7 +102,9 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
   assert.equal(research.metadata.usage.cost, 0.001);
   assert.equal(research.metadata.search_tool_calls, 2);
   assert.equal(research.metadata.requested_model, "google/test-model");
+  assert.equal(research.metadata.requested_effort, "low");
   assert.equal(research.metadata.model, "openai/gpt-4.1");
+  assert.equal(research.metadata.usage.reasoning_tokens, null);
   const extracted = await provider.extract(
     research,
     selectSources(research.urls, 3),
@@ -105,6 +112,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     signal,
   );
   assert.equal(extracted.candidates.length, 1);
+  assert.equal(extracted.metadata.requested_effort, "low");
   assert.equal(extracted.metadata.fetch_verification, "usage_counter");
   for (const request of requests) {
     assert.equal(
@@ -114,6 +122,10 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     assert.equal(request.init.redirect, "error");
     assert.equal(request.init.headers.Authorization, "Bearer " + key);
     assert.equal(request.body.model, "google/test-model");
+    assert.deepEqual(request.body.reasoning, {
+      effort: "low",
+      exclude: true,
+    });
     assert.deepEqual(request.body.provider, {
       require_parameters: true,
       allow_fallbacks: false,
@@ -164,6 +176,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     "usage_counter",
   );
   assert.equal(provider.getDiagnostics()[1].extraction_candidate_count, 1);
+  assert.equal(provider.getDiagnostics()[1].requested_effort, "low");
   assert.equal(
     provider.getDiagnostics()[1].extraction_shape,
     "candidates_object",
@@ -182,6 +195,9 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
   assert.deepEqual(
     provider.getDiagnostics().map((item) => item.phase),
     ["research", "extraction"],
+  );
+  assert.ok(
+    provider.getDiagnostics().every((item) => item.requested_effort === "low"),
   );
   assert.equal(provider.getDiagnostics()[0].extraction_shape, null);
   const copy = provider.getDiagnostics();
@@ -367,6 +383,7 @@ test("cancellation and network failures never retry or expose transport details"
   const cancelled = new OpenRouterSearchProvider(
     key,
     "openai/gpt-4.1",
+    "low",
     async () => {
       active.abort();
       throw new Error(key);
@@ -379,6 +396,7 @@ test("cancellation and network failures never retry or expose transport details"
   const failed = new OpenRouterSearchProvider(
     key,
     "openai/gpt-4.1",
+    "low",
     async () => {
       throw new Error(key);
     },
@@ -496,6 +514,7 @@ test("request timeout is bounded and invalid HTTP JSON fails safely", async (t) 
   const timed = new OpenRouterSearchProvider(
     key,
     "openai/gpt-4.1",
+    "low",
     async (_url, init) => {
       assert.equal(init.signal.aborted, true);
       throw new Error(key);
@@ -509,6 +528,7 @@ test("request timeout is bounded and invalid HTTP JSON fails safely", async (t) 
   const badJson = new OpenRouterSearchProvider(
     key,
     "openai/gpt-4.1",
+    "low",
     async () => new Response("not JSON " + key),
   );
   await assert.rejects(
@@ -534,11 +554,41 @@ test("missing extraction billing fields stay unknown when fetch usage is verifie
   assert.deepEqual(extracted.metadata.usage, {
     input_tokens: null,
     output_tokens: null,
+    reasoning_tokens: null,
     total_tokens: null,
     cost: null,
   });
   assert.equal(extracted.metadata.search_tool_calls, null);
   assert.equal(extracted.metadata.fetch_tool_calls, 1);
+});
+
+test("reasoning-token usage is allowlisted without inferring missing or malformed values", async () => {
+  for (const [reasoningTokens, expected] of [
+    [7, 7],
+    [null, null],
+    [-1, null],
+    ["7", null],
+    [0.5, null],
+  ]) {
+    const value = response(report, 1);
+    if (reasoningTokens !== null)
+      value.usage.completion_tokens_details = {
+        reasoning_tokens: reasoningTokens,
+        private_trace: key,
+      };
+    const { provider } = providerWithResponses(
+      [value],
+      "openai/gpt-4.1",
+      "high",
+    );
+    const research = await provider.research(options, signal);
+    assert.equal(research.metadata.requested_effort, "high");
+    assert.equal(research.metadata.usage.reasoning_tokens, expected);
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.requested_effort, "high");
+    assert.equal(diagnostic.usage.reasoning_tokens, expected);
+    assert.ok(!JSON.stringify([research.metadata, diagnostic]).includes(key));
+  }
 });
 
 test("source fetch verification requires one bounded fetch per selected listing", async () => {
@@ -926,6 +976,7 @@ test("HTTP, JSON and transport failures keep costs unknown and never store raw e
     const provider = new OpenRouterSearchProvider(
       key,
       "openai/gpt-4.1",
+      "low",
       fetcher,
     );
     const repository = memoryRepository();

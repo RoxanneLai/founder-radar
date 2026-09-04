@@ -1,6 +1,17 @@
 import { z } from "zod";
 import type { Database, Json } from "../database.types.ts";
 
+export const REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 // A quote anchors every field to the research report. It is not independent
 // verification of the original page, so ingestion can only create drafts.
 const textFact = z
@@ -134,6 +145,7 @@ export type Extraction = {
 export type ProviderDiagnostic = {
   phase: "research" | "extraction";
   requested_model: string | null;
+  requested_effort: ReasoningEffort | null;
   response_id: string | null;
   model: string | null;
   http_status: number | null;
@@ -158,6 +170,7 @@ export type ProviderDiagnostic = {
   usage: {
     input_tokens: number | null;
     output_tokens: number | null;
+    reasoning_tokens: number | null;
     total_tokens: number | null;
     cost: number | null;
   };

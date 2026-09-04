@@ -1,3 +1,4 @@
 {
-  "model": "openai/gpt-5.6-luna"
+  "model": "openai/gpt-5.6-luna",
+  "effort": "medium"
 }

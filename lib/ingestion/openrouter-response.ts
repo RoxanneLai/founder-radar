@@ -38,6 +38,7 @@ const responseSchema = z.object({
       completion_tokens: count.nullish(),
       input_tokens: count.nullish(),
       output_tokens: count.nullish(),
+      completion_tokens_details: z.unknown().nullish(),
       total_tokens: count.nullish(),
       cost: z.number().nonnegative().nullish(),
       server_tool_use: z
@@ -108,6 +109,7 @@ export async function readResponseJson(
 export function routerMetadata(
   response: RouterResponse,
   requestedModel: string,
+  requestedEffort: string,
   diagnostic?: ProviderDiagnostic,
 ): Json {
   const usage = response.usage;
@@ -115,12 +117,14 @@ export function routerMetadata(
     provider: "openrouter",
     response_id: response.id,
     requested_model: requestedModel,
+    requested_effort: requestedEffort,
     model: response.model,
     status: "completed",
     usage: usage
       ? {
           input_tokens: usage.prompt_tokens ?? usage.input_tokens ?? null,
           output_tokens: usage.completion_tokens ?? usage.output_tokens ?? null,
+          reasoning_tokens: diagnostic?.usage.reasoning_tokens ?? null,
           total_tokens: usage.total_tokens ?? null,
           cost: usage.cost ?? null,
         }

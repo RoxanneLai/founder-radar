@@ -2,6 +2,8 @@ import "server-only";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { z } from "zod";
+import { REASONING_EFFORTS } from "./contracts.ts";
+import type { ReasoningEffort } from "./contracts.ts";
 import { IngestionError } from "./errors.ts";
 
 export const DEFAULT_CONFIG_PATH = "config/ingestion.json";
@@ -17,7 +19,10 @@ const modelSchema = z
       !value.toLowerCase().split(":").includes("online") &&
       !value.toLowerCase().startsWith("openrouter/"),
   );
-const settingsSchema = z.object({ model: modelSchema }).strict();
+const effortSchema = z.enum(REASONING_EFFORTS);
+const settingsSchema = z
+  .object({ model: modelSchema, effort: effortSchema })
+  .strict();
 
 /** Read a small regular file only; never echo file contents or filesystem errors. */
 async function readLocalText(
@@ -55,15 +60,19 @@ async function readLocalText(
   }
 }
 
-/** CLI model wins over the checked-in configuration; secrets are never read here. */
+/** CLI overrides independently win over checked-in settings; no secrets are read here. */
 export async function readModelConfig(
   path = DEFAULT_CONFIG_PATH,
   modelOverride?: string,
-): Promise<{ model: string }> {
+  effortOverride?: string,
+): Promise<{ model: string; effort: ReasoningEffort }> {
   const text = await readLocalText(path, 16384, "invalid_ingestion_config");
   try {
     const settings = settingsSchema.parse(JSON.parse(text));
-    return { model: modelSchema.parse(modelOverride ?? settings.model) };
+    return {
+      model: modelSchema.parse(modelOverride ?? settings.model),
+      effort: effortSchema.parse(effortOverride ?? settings.effort),
+    };
   } catch {
     throw new IngestionError("invalid_ingestion_config");
   }

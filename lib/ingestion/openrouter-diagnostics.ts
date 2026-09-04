@@ -1,5 +1,6 @@
 import "server-only";
-import type { ProviderDiagnostic } from "./contracts.ts";
+import { REASONING_EFFORTS } from "./contracts.ts";
+import type { ProviderDiagnostic, ReasoningEffort } from "./contracts.ts";
 
 /** Inspect only known fields; never retain arbitrary keys or provider text. */
 function record(value: unknown): Record<string, unknown> {
@@ -17,6 +18,12 @@ function nonnegativeNumber(value: unknown): number | null {
 function count(value: unknown): number | null {
   const number = nonnegativeNumber(value);
   return number !== null && Number.isSafeInteger(number) ? number : null;
+}
+
+function effort(value: string): ReasoningEffort | null {
+  return REASONING_EFFORTS.includes(value as ReasoningEffort)
+    ? (value as ReasoningEffort)
+    : null;
 }
 
 /** Keep bounded identifiers only, excluding reflected credentials and key-like strings. */
@@ -42,6 +49,7 @@ export function routerDiagnostic(
   value: unknown,
   phase: ProviderDiagnostic["phase"],
   requestedModel: string,
+  requestedEffort: string,
   apiKey: string,
   httpStatus: number | null = null,
 ): ProviderDiagnostic {
@@ -51,6 +59,9 @@ export function routerDiagnostic(
   const searchCount = count(searches);
   const fetches = record(usage.server_tool_use).web_fetch_requests;
   const fetchCount = count(fetches);
+  const reasoningTokens = count(
+    record(usage.completion_tokens_details).reasoning_tokens,
+  );
   const choice = record(Array.isArray(body.choices) ? body.choices[0] : null);
   const message = record(choice.message);
   const finishReasons = [
@@ -64,6 +75,7 @@ export function routerDiagnostic(
   return {
     phase,
     requested_model: identifier(requestedModel, apiKey, true),
+    requested_effort: effort(requestedEffort),
     response_id: identifier(body.id, apiKey),
     model: identifier(body.model, apiKey, true),
     http_status: httpStatus,
@@ -101,6 +113,7 @@ export function routerDiagnostic(
     usage: {
       input_tokens: count(usage.prompt_tokens ?? usage.input_tokens),
       output_tokens: count(usage.completion_tokens ?? usage.output_tokens),
+      reasoning_tokens: reasoningTokens,
       total_tokens: count(usage.total_tokens),
       cost: nonnegativeNumber(usage.cost),
     },

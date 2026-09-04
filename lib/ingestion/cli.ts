@@ -1,5 +1,6 @@
 import "server-only";
 import { parseArgs } from "node:util";
+import { REASONING_EFFORTS } from "./contracts.ts";
 import { defaultSearchOptions, validateSearchOptions } from "./options.ts";
 import { IngestionError } from "./errors.ts";
 
@@ -7,15 +8,17 @@ export const INGEST_HELP = [
   "FounderRadar ingestion (local database only)",
   "",
   "npm run ingest -- [--from ISO_TIMESTAMP] [--to ISO_TIMESTAMP] [--limit 1..10]",
-  "                 [--model vendor/model-id] [--config path/to/config.json]",
+  "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",
   "Default: print a plan only. No network, database writes, or API credentials needed.",
-  "Model: --model overrides config/ingestion.json (or --config). No environment model override.",
+  "Model and effort independently override config/ingestion.json (or --config).",
+  "When testing another model, normally supply both --model and --effort.",
+  "Effort: none, minimal, low, medium, high, xhigh, or max. No environment overrides.",
   "",
   "Add --live AND set FOUNDER_RADAR_ALLOW_PAID_API=1 to permit paid API calls.",
   "Required live environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",
-  "Limits: 2 API requests, up to 3 hosted searches, one hosted fetch per selected source,",
+  "Limits: at most 2 API requests, up to 3 hosted searches, one hosted fetch per selected source,",
   "        no retries, 5-minute run deadline.",
   "Use --help to show this message. The end timestamp is exclusive.",
 ].join("\n");
@@ -33,6 +36,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
         to: { type: "string" },
         limit: { type: "string" },
         model: { type: "string" },
+        effort: { type: "string" },
         config: { type: "string" },
         live: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -48,7 +52,14 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     throw new IngestionError("invalid_cli_arguments");
   }
   if (values.help) return { help: true as const };
-  if (values.model === "" || values.config === "")
+  if (values.model === "" || values.effort === "" || values.config === "")
+    throw new IngestionError("invalid_cli_arguments");
+  if (
+    values.effort !== undefined &&
+    !REASONING_EFFORTS.includes(
+      values.effort as (typeof REASONING_EFFORTS)[number],
+    )
+  )
     throw new IngestionError("invalid_cli_arguments");
   const defaults = defaultSearchOptions(now);
   if ((values.from && !values.to) || (!values.from && values.to))
@@ -65,6 +76,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     live: values.live === true,
     options,
     model: values.model,
+    effort: values.effort,
     configPath: values.config,
   };
 }

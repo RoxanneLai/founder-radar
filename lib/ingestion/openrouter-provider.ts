@@ -5,6 +5,7 @@ import type {
   DiscoveryProvider,
   Extraction,
   ProviderDiagnostic,
+  ReasoningEffort,
   Research,
   SearchOptions,
   SourceIdentity,
@@ -148,8 +149,9 @@ function extractionCandidates(
 export function createOpenRouterProvider(
   apiKey: string,
   model: string,
+  effort: ReasoningEffort,
 ): DiscoveryProvider {
-  return new OpenRouterSearchProvider(apiKey, model);
+  return new OpenRouterSearchProvider(apiKey, model, effort);
 }
 
 export class OpenRouterSearchProvider implements DiscoveryProvider {
@@ -157,11 +159,18 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
   private readonly diagnostics: ProviderDiagnostic[] = [];
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly effort: ReasoningEffort;
   private readonly fetcher: typeof fetch;
 
-  constructor(apiKey: string, model: string, fetcher: typeof fetch = fetch) {
+  constructor(
+    apiKey: string,
+    model: string,
+    effort: ReasoningEffort,
+    fetcher: typeof fetch = fetch,
+  ) {
     this.apiKey = apiKey;
     this.model = model;
+    this.effort = effort;
     this.fetcher = fetcher;
   }
 
@@ -179,7 +188,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     if (this.calls >= API_LIMITS.calls)
       throw new IngestionError("api_call_limit");
     this.calls += 1;
-    const diagnostic = routerDiagnostic(null, phase, this.model, this.apiKey);
+    const diagnostic = routerDiagnostic(
+      null,
+      phase,
+      this.model,
+      this.effort,
+      this.apiKey,
+    );
     this.diagnostics.push(diagnostic);
     const boundedSignal = AbortSignal.any([
       signal,
@@ -201,6 +216,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
             stream: false,
             provider: { require_parameters: true, allow_fallbacks: false },
             ...body,
+            reasoning: { effort: this.effort, exclude: true },
           }),
         },
       );
@@ -216,6 +232,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           value,
           phase,
           this.model,
+          this.effort,
           this.apiKey,
           response.status,
         ),
@@ -322,7 +339,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     return {
       report,
       urls,
-      metadata: routerMetadata(response, this.model, diagnostic),
+      metadata: routerMetadata(response, this.model, this.effort, diagnostic),
     };
   }
 
@@ -391,7 +408,12 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     );
     return {
       candidates,
-      metadata: routerMetadata(response, this.model, verifiedDiagnostic),
+      metadata: routerMetadata(
+        response,
+        this.model,
+        this.effort,
+        verifiedDiagnostic,
+      ),
     };
   }
 }

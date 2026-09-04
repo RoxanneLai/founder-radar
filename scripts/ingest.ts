@@ -12,7 +12,11 @@ import {
 } from "../lib/ingestion/openrouter-provider.ts";
 import { createIngestionRepository } from "../lib/ingestion/repository.ts";
 import { runIngestion } from "../lib/ingestion/run.ts";
-import type { RunSummary, SearchOptions } from "../lib/ingestion/contracts.ts";
+import type {
+  ReasoningEffort,
+  RunSummary,
+  SearchOptions,
+} from "../lib/ingestion/contracts.ts";
 
 async function saveProgress(summary: RunSummary): Promise<void> {
   await mkdir("codex-tmp", { recursive: true });
@@ -23,13 +27,18 @@ async function saveProgress(summary: RunSummary): Promise<void> {
   );
 }
 
-function printPlan(options: SearchOptions, model: string): void {
+function printPlan(
+  options: SearchOptions,
+  model: string,
+  effort: ReasoningEffort,
+): void {
   console.log(
     JSON.stringify(
       {
         mode: "plan_only",
         provider: "openrouter-web-search",
         model,
+        effort,
         location: "New York City",
         options,
         limits: API_LIMITS,
@@ -46,6 +55,7 @@ function printPlan(options: SearchOptions, model: string): void {
 async function executeLive(
   options: SearchOptions,
   model: string,
+  effort: ReasoningEffort,
 ): Promise<void> {
   const config = readIngestionConfig(process.env);
   const apiKey = await readOpenRouterKey();
@@ -56,11 +66,12 @@ async function executeLive(
   const deadline = setTimeout(cancel, 300000);
   try {
     const summary = await runIngestion(options, {
-      provider: createOpenRouterProvider(apiKey, model),
+      provider: createOpenRouterProvider(apiKey, model, effort),
       repository: createIngestionRepository(
         config.supabaseUrl,
         config.serviceRoleKey,
         model,
+        effort,
       ),
       signal: controller.signal,
       onProgress: saveProgress,
@@ -80,9 +91,13 @@ async function main(): Promise<void> {
     console.log(INGEST_HELP);
     return;
   }
-  const settings = await readModelConfig(args.configPath, args.model);
-  if (!args.live) printPlan(args.options, settings.model);
-  else await executeLive(args.options, settings.model);
+  const settings = await readModelConfig(
+    args.configPath,
+    args.model,
+    args.effort,
+  );
+  if (!args.live) printPlan(args.options, settings.model, settings.effort);
+  else await executeLive(args.options, settings.model, settings.effort);
 }
 
 main().catch((error: unknown) => {
