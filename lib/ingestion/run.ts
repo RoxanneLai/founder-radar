@@ -126,8 +126,9 @@ async function saveExtractedSource(
       content_text: research.report,
       content_hash: createHash("sha256").update(research.report).digest("hex"),
       raw_payload: {
-        evidence_kind: "model_web_search_report",
+        evidence_kind: "model_web_search_report_with_source_fetch",
         research: research.metadata,
+        extraction: context.metadata.extraction ?? null,
         candidate: JSON.parse(JSON.stringify(candidates[0])) as Json,
       },
     },
@@ -172,6 +173,7 @@ async function extractCandidates(
     const extracted = await deps.provider.extract(
       research,
       sources,
+      context.options,
       deps.signal,
     );
     context.metadata.extraction = extracted.metadata;
@@ -269,7 +271,9 @@ export async function runIngestion(
   const context: RunContext = {
     summary,
     options,
-    metadata: { evidence_kind: "model_web_search_report" },
+    metadata: {
+      evidence_kind: "model_web_search_report_with_source_fetch",
+    },
     observedAt: "",
   };
   try {

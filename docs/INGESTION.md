@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live API acceptance has not passed.** The first approved comparison stopped with an ambiguous `search_not_performed` diagnostic. A subsequent Luna-only check received HTTP 200, a normal finish, 15 citation annotations, and a reported cost of $0.02426649, but no documented search counter. It stopped with `search_usage_missing` before extraction or writes. A read-only metadata lookup returned an aggregate record with no usable model, finish, engine, result, token, or cost details, so that endpoint cannot verify this server-tool response. The bounded-citation path below is tested offline, not yet end-to-end. Finding and reviewing three real, correctly dated events remains an uncompleted acceptance check.
+**Live discovery and extraction now work, but production acceptance is still pending.** A bounded Luna replay wrote three real drafts for a provider-reported $0.00263535 with no ingestion errors. Manual checks found that two drafts matched their current listings while one recurring Meetup result used a stale September 9 date; the source page said September 2 and the event had passed. The first source-fetch replay completed for a reported $0.00672044 but omitted `web_fetch_requests`, so it safely wrote no events. Two compatibility replays then returned nonconforming candidate envelopes and safely wrote no events for reported costs of $0.00707632 and $0.00630341. The prompt contradiction is removed, the provider schema still requires exactly one verdict per supplied source, and narrow local envelope compatibility preserves all candidate and source validation. One live replay is still needed.
 
 ## What happens in one run
 
@@ -13,19 +13,21 @@ The implementation is a manually triggered ingestion command using **OpenRouter*
    Verify the reported search count when present. When it is absent/null, require 1–15 provider-supplied citation annotations, each containing a supported event-listing URL. The request's `max_uses`, `max_tool_calls`, and result limits remain the server-side bounds.
 3. Intersect individual event URLs named in the report with returned URL-citation annotations, preserving the report's numbered event order and selecting one primary listing per event section. Duplicate-platform/background citations and plain URLs invented in the report cannot become candidates. Normalize aliases and tracking parameters; cap retained candidates at the requested limit.
 4. Save the research report and consulted URLs privately in the search run. Persist candidate sources before extraction.
-5. Make one tool-free structured-output request to extract fields with supporting quotes from that report.
-6. Validate title, date/time zone, relevance, city, format, and date window. Save usable candidates as drafts; retain incomplete sources unlinked with a diagnostic code.
-7. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
+5. Make one structured-output request with OpenRouter's `openrouter:web_fetch` server tool. Request every selected listing exactly once through the free direct-fetch engine, restricted to the listing allowlist and bounded content size.
+6. Return exactly one bounded verdict object per supplied source. Extract facts only when the current page confirms the search report; rejected fetches, conflicts, stale/past pages, cancellations, and virtual-only listings carry an allowlisted rejection code and no facts.
+7. Verify the reported fetch count when present. When it is absent/null, require exact, unique verdict coverage for every supplied source under the request's required-tool and per-source tool-call bounds.
+8. Validate title, date/time zone, relevance, city, format, and date window. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
+9. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
 
 The provider adapter never writes to the database. The repository owns persistence through one transactional RPC, `ingest_event_source`. Concurrent saves of the same provider URL or external ID reuse a source and event. Original `first_seen_at` and discovery-run attribution are retained.
 
 ### Evidence is not a page archive
 
-This version uses **model-generated web-search reports**, not a bespoke page scraper. `content_text` stores that report and `raw_payload.evidence_kind` identifies it as `model_web_search_report`. `fetched_at` means the report was retrieved, not that our process independently fetched the source page. `http_status` remains unknown. Supporting quotes must occur in the report, but this cannot prove the report or the extracted interpretation is factually correct.
+This version stores **model-generated web-search reports**, not page archives. `content_text` stores that report and new successful observations use `raw_payload.evidence_kind: model_web_search_report_with_source_fetch`; the allowlisted extraction metadata records the fetch-verification mode and reported count when present. OpenRouter provides page text to the model but not to the repository, so `fetched_at` is an evidence timestamp rather than proof of a retained HTTP response and `http_status` remains unknown. Supporting quotes must occur in the report and be confirmed by the fetched page, but the model still interprets both inputs.
 
-Review drafts against their original links before publishing. Search indexing may miss events or surface stale listings. Search is not an exhaustive provider feed. Same-event deduplication across platforms, recurring-event instances, and semantic field verification remain future work.
+Review drafts against their original links before publishing. The fetch gate rejects reported conflicts and missing fetches, but it is not an independent page archive or a guarantee against model error. Search is not an exhaustive provider feed. Same-event deduplication across platforms and recurring-event identity remain future work.
 
-Official references: [OpenRouter server-side web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [Supabase RPC](https://supabase.com/docs/reference/javascript/rpc). OpenRouter currently labels server tools beta; real-account behavior remains part of the live acceptance test.
+Official references: [OpenRouter server-side web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [OpenRouter server-side web fetch](https://openrouter.ai/docs/guides/features/server-tools/web-fetch), [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [Supabase RPC](https://supabase.com/docs/reference/javascript/rpc). OpenRouter currently labels server tools beta; real-account behavior remains part of the live acceptance test.
 
 ## Start safely: no-network plan
 
@@ -107,6 +109,8 @@ The same model default/override applies in plan and live modes. No live run is l
 | Search interval            | More than zero, at most 31 days                           |
 | OpenRouter API requests    | At most 2 per provider instance/run                       |
 | Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses` |
+| Hosted source fetches      | Exactly one per retained source; at most 10               |
+| Fetched-page content       | At most 6,000 approximate tokens per fetch                |
 | Search results             | At most 5 per search, 15 total                            |
 | Search-result content      | At most 2,000 characters per result                       |
 | Research output tokens     | At most 6,000                                             |
@@ -118,9 +122,9 @@ The same model default/override applies in plan and live modes. No live run is l
 | Run cancellation deadline  | 5 minutes, followed by bounded database finalization      |
 | Automatic API retries      | None, including quota/rate errors                         |
 
-These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while executing searches within the first API request. Input, model output and hosted search can be billed, even when validation later rejects the result. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify the requested limits, but live enforcement still needs confirmation. The adapter rejects reported zero/invalid/over-budget search counts. When the counter is missing, 1–15 valid provider citation annotations prove that bounded search results were returned, **not the actual number of queries**: enforcement of the three-query limit then relies on OpenRouter's documented `max_uses` and `max_tool_calls` behavior. Exa remains fixed so switching LLMs cannot silently select native search with different limit behavior. No credit exhaustion, rate limit or other failure is automatically retried.
+These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while executing hosted tools. Input, model output and hosted search can be billed, even when validation later rejects the result. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify the requested limits, but live enforcement still needs confirmation. The adapter rejects reported zero/invalid/over-budget search or fetch counts. When a counter is missing, the compatibility checks below verify bounded response evidence rather than inventing a count; enforcement then relies partly on OpenRouter's documented `max_uses`, `max_tool_calls`, required-tool, and domain-filter behavior. Exa remains fixed for search and OpenRouter's direct engine remains fixed for fetch. No credit exhaustion, rate limit or other failure is automatically retried.
 
-The application's paid requests go only to the fixed `https://openrouter.ai/api/v1/chat/completions` endpoint; redirects are rejected. It never fetches arbitrary model-provided URLs directly. Source access is handled by OpenRouter's hosted search tool. Search-page content is treated as untrusted data in both prompts; extraction has no tools, and model output cannot select database operations or publication status.
+The application's requests go only to the fixed `https://openrouter.ai/api/v1/chat/completions` endpoint; redirects are rejected. It never fetches model-provided URLs from the local process. Source access is handled by OpenRouter's hosted search and fetch tools. Fetch is restricted to the Luma, Meetup, and Eventbrite domains, and the request supplies only canonical URLs selected from trusted search annotations. A reported fetch count must exactly match the source count; when absent, exact unique verdict coverage is mandatory. Search reports and fetched pages are treated as untrusted data; model output cannot select database operations or publication status.
 
 Failed or discovery-only observations preserve earlier successful content, retrieval time, and event links. New valid observations update draft facts. Published, archived, and fixture events are not rewritten by the agent. An older observation cannot overwrite a newer one. Conflicting URL/external-ID identities are rejected for review, not automatically merged.
 
@@ -153,17 +157,19 @@ The command prints a safe final JSON summary and saves milestone snapshots to ig
 
 ### Safe diagnostics for rejected responses
 
-`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, HTTP status, bounded response ID and model identifiers, known finish reason, token usage and provider-reported cost when available. Citation/tool-call counts and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, or raw errors. Reflected API credentials and key-like identifiers are excluded.
+`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, HTTP status, bounded response ID and model identifiers, known finish reason, search/fetch counts, token usage and provider-reported cost when available. Citation/tool-call counts, extraction candidate count, and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, fetched content, or raw errors. Reflected API credentials and key-like identifiers are excluded.
 
 Diagnostics are captured before response validation and included in the final recovery snapshot even when research, extraction, or database finalization fails. A response ID or cost is retained only if actually returned and safely parsed; network errors, non-JSON or oversized responses, and non-success HTTP responses may have no such details. Missing or invalid numbers stay `null`, never zero. These figures are provider reports, not independently verified billing totals.
 
 - `search_usage_missing`: the documented search counter is absent/null and no usable provider citations were returned.
 - `search_not_performed`: the counter explicitly reports zero searches.
 - Invalid counters still fail response validation; diagnostics mark `search_usage` as `invalid` when a malformed counter is present.
+- `source_fetch_usage_missing`: extraction omitted its fetch counter and did not return exact unique verdict coverage for every source.
+- `source_fetch_incomplete` / `source_fetch_limit_exceeded`: the reported fetch count did not equal the number of selected listings.
 
 These errors stop extraction and event creation. Inspect diagnostics and account usage before authorizing another paid request. Old failed run records remain unchanged; neither diagnostics nor metadata can reconstruct an earlier discarded research report.
 
-The diagnostic fix passed lint, TypeScript, and all 78 offline tests, including missing/zero/invalid search usage, rejected-response cost retention, credential exclusion, and recovery after failed extraction or finalization. No paid retry was performed as part of this fix.
+The diagnostic and source-fetch gates pass lint, TypeScript, and the full offline ingestion, unit, dashboard, and review suites, including missing/zero/invalid tool usage, exact candidate-count enforcement, rejected-response cost retention, credential exclusion, and recovery after failed extraction or finalization. No paid retry was performed as part of these fixes.
 
 ### Compatibility when Chat Completions omits the search counter
 
@@ -179,6 +185,12 @@ The compatibility change is covered by offline regression tests for missing coun
 The first end-to-end Luna run after enabling bounded citations successfully persisted three source observations but wrote no event drafts. Inspection found that citation order had selected one background URL absent from the three-event report. Source selection now intersects annotated listing URLs with URLs in the report and preserves report order.
 
 The next run returned all candidates, exposing two further issues: the report said local times lacked an explicit timezone, so extraction left every timestamp null; and two platforms for one event consumed two source slots. Research now requests exactly one primary cited listing in each numbered event section, and source selection enforces one primary listing per section. Extraction applies an explicit ingestion policy: a stated clock time for a verified physical NYC venue is interpreted as `America/New_York`, with the date-correct offset. It still cannot invent a missing date, clock time, or NYC venue, and every result remains a draft requiring review.
+
+The replay after that correction wrote three drafts with no ingestion errors. Independent source review accepted Founders Live NYC and Taco Tech Tuesday, but rejected NYC Startup Founders & Investors Networking Night because the current Meetup page showed September 2 rather than the report's September 9. Extraction now performs bounded hosted fetches of all selected pages and must return a fact-free rejection verdict for any listing whose current core facts conflict with the report.
+
+The first source-fetch replay returned a normal HTTP 200 response with 19,705 tokens and a reported cost of $0.00672044, but Chat Completions omitted `usage.server_tool_use.web_fetch_requests`. The response was discarded before parsing and no event was refreshed. The compatibility path now requires `tool_choice: required`, one allowed fetch slot per source, and a strict response containing each supplied canonical URL exactly once with either a verified verdict or an allowlisted rejection reason. Rejected verdicts must carry no facts. A missing counter with partial, duplicate, invented, or malformed coverage still fails closed; an explicit zero or mismatched counter never uses the fallback.
+
+The next two compatibility replays also returned HTTP 200 without a fetch counter, but their parsed JSON did not expose the expected three-item `candidates` array. Both were rejected as `invalid_extraction_shape` before validation or event writes, at provider-reported costs of $0.00707632 and $0.00630341. The structured-output schema is generated for each request with its candidate array fixed to the exact selected-source count. A contradictory legacy instruction to omit non-event candidates was removed; every supplied source must instead receive a fact-free rejection. Because OpenRouter server tools are beta and these observed responses did not honor the requested envelope, the local parser narrowly accepts the required object, the same array under the schema name, a direct candidate array, or one JSON-encoded copy of those forms. It still requires the exact count, strict candidate schema, canonical source set, unique coverage, and safe verdict rules. Diagnostics record only the envelope category and bounded candidate count when readable, not candidate content.
 
 ### Run statuses
 
@@ -203,6 +215,8 @@ Common codes:
 | `search_usage_missing`                                     | Search execution is unknown; inspect safe diagnostics and account usage before another paid attempt    |
 | `invalid_search_citation` / `search_result_limit_exceeded` | Provider citations were unsupported or excessive; stop before extraction                               |
 | `search_not_performed` / `search_tool_limit_exceeded`      | Zero or excessive searches were reported; inspect model/tool compatibility before another paid attempt |
+| `source_fetch_usage_missing`                               | Counter and exact source-verdict coverage are both missing; stop before accepting candidates           |
+| `source_fetch_incomplete` / `source_fetch_limit_exceeded`  | Fetch count did not match selected listings; leave sources unlinked and inspect compatibility          |
 | `provider_diagnostics_unavailable`                         | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
 | `local_database_required`                                  | Use the local stack, not a hosted project                                                              |
 | `ingestion_migration_required`                             | Apply the pending local migration                                                                      |
@@ -213,10 +227,12 @@ Common codes:
 | `run_finish_failed`                                        | Use the local checkpoint; the database run may still say running                                       |
 | `progress_write_failed`                                    | Local recovery-file write failed; inspect the database summary                                         |
 
-## Live acceptance gate still pending
+## Live source-verification acceptance gate still pending
 
 - Run with a small agreed API budget and a current, fixed date window.
-- Verify three real upcoming NYC events against their original links, including year, timezone, venue, relevance, and unknown fields.
+- Confirm extraction records either an exact reported fetch count or `required_tool_and_source_coverage`.
+- Verify that stale or conflicting pages remain unlinked while current listings become drafts.
+- Verify up to three real upcoming NYC events against their original links, including year, timezone, venue, relevance, and unknown fields.
 - Confirm all new events remain nonfixture drafts and have source URLs/evidence.
 - Repeat the same bounded search and confirm the same source identities reuse records.
 - Review actual request counts, model/tool usage, and cost before expanding the limit.

@@ -8,7 +8,14 @@ import {
 } from "../../lib/ingestion/options.ts";
 import { parseIngestionArgs } from "../../lib/ingestion/cli.ts";
 import { readIngestionConfig } from "../../lib/ingestion/config.ts";
-import { candidate, fact, report, url, options } from "./helpers.mjs";
+import {
+  candidate,
+  fact,
+  rejectedCandidate,
+  report,
+  url,
+  options,
+} from "./helpers.mjs";
 
 const normalize = (input, window = options) =>
   normalizeCandidate(input, sourceIdentity(url), report, window);
@@ -81,6 +88,28 @@ test("normalizes a supported event without adding scores or publication privileg
   assert.equal(result.venue_name, null);
   assert.equal("publication_status" in result, false);
   assert.equal("founder_score" in result, false);
+});
+
+test("source-page rejection verdicts stay unlinked and cannot carry facts", () => {
+  for (const reason of [
+    "source_fetch_failed",
+    "source_not_event_listing",
+    "source_page_conflict",
+    "source_page_past",
+    "source_page_cancelled",
+    "source_page_virtual_only",
+    "source_evidence_insufficient",
+  ]) {
+    assert.throws(() => normalize(rejectedCandidate(url, reason)), {
+      code: reason,
+    });
+  }
+  const mixed = rejectedCandidate();
+  mixed.title = fact("Invented Event");
+  assert.throws(() => normalize(mixed), /invalid_candidate/);
+  const inconsistent = candidate();
+  inconsistent.source_verification.reason = "source_page_conflict";
+  assert.throws(() => normalize(inconsistent), /invalid_candidate/);
 });
 
 test("unknown or unsupported optional fields stay unknown; missing core fields stay unlinked", () => {

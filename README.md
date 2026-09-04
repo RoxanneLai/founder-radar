@@ -77,7 +77,7 @@ This command does not reset or deploy a hosted Supabase project.
 The schema is designed for discovery before normalization:
 
 1. A discovery agent creates a `search_runs` record.
-2. Each fetched listing is upserted into `event_sources` with its URL, provider identity, fetched content, and raw payload.
+2. Each selected listing is upserted into `event_sources` with its URL, provider identity, model-generated evidence report, and hosted source-fetch metadata.
 3. A source may remain unlinked while extraction is incomplete.
 4. Normalized sources are linked to canonical `events` records.
 5. Only events explicitly marked `published` are readable through the public application role.

@@ -89,6 +89,9 @@ export function normalizeCandidate(
   const c = parsed.data;
   if (sourceIdentity(c.source_url)?.source_url !== source.source_url)
     throw new IngestionError("source_mismatch");
+  if (c.source_verification.status === "rejected") {
+    throw new IngestionError(c.source_verification.reason!);
+  }
   if (supported(c.relevant_to_founders, report) !== true)
     throw new IngestionError("irrelevant_event");
   const title = text(c.title, report, 300);

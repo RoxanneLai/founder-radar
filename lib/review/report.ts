@@ -34,7 +34,7 @@ export function buildReviewReport(input: unknown, now = new Date()) {
   const event = review.event;
   const blockers: string[] = [];
   const warnings: string[] = [
-    "Evidence is untrusted, model-generated research, not independent verification. Check the listing yourself before approving.",
+    "Evidence was interpreted by a model. Hosted source verification is not a page archive; check the current listing yourself before approving.",
   ];
   if (event.publication_status !== "draft" || event.is_fixture)
     blockers.push("Only non-fixture drafts can be published.");

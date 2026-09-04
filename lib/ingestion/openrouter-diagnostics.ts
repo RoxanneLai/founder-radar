@@ -49,6 +49,8 @@ export function routerDiagnostic(
   const usage = record(body.usage);
   const searches = record(usage.server_tool_use).web_search_requests;
   const searchCount = count(searches);
+  const fetches = record(usage.server_tool_use).web_fetch_requests;
+  const fetchCount = count(fetches);
   const choice = record(Array.isArray(body.choices) ? body.choices[0] : null);
   const message = record(choice.message);
   const finishReasons = [
@@ -77,6 +79,15 @@ export function routerDiagnostic(
           ? "invalid"
           : "reported",
     search_tool_calls: searchCount,
+    fetch_usage:
+      fetches == null
+        ? "missing"
+        : fetchCount === null
+          ? "invalid"
+          : "reported",
+    fetch_tool_calls: fetchCount,
+    extraction_shape: null,
+    extraction_candidate_count: null,
     citation_count: Array.isArray(message.annotations)
       ? message.annotations.filter(
           (item) => record(item).type === "url_citation",

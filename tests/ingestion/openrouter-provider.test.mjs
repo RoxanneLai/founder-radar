@@ -11,6 +11,7 @@ import {
   candidate,
   memoryRepository,
   report,
+  rejectedCandidate,
   options,
   url,
 } from "./helpers.mjs";
@@ -18,7 +19,7 @@ import {
 const signal = new AbortController().signal;
 const key = "offline-test-not-a-key";
 
-function response(text, searches = 0) {
+function response(text, searches = 0, fetches = null) {
   return {
     id: "gen-offline-test",
     model: "openai/gpt-4.1",
@@ -48,9 +49,16 @@ function response(text, searches = 0) {
       completion_tokens: 20,
       total_tokens: 30,
       cost: 0.001,
-      server_tool_use: { web_search_requests: searches },
+      server_tool_use: {
+        web_search_requests: searches,
+        ...(fetches === null ? {} : { web_fetch_requests: fetches }),
+      },
     },
   };
+}
+
+function extractionResponse(text, fetches = 1) {
+  return response(text, 0, fetches);
 }
 
 function providerWithResponses(responses, model = "openai/gpt-4.1") {
@@ -75,11 +83,11 @@ function providerWithResponses(responses, model = "openai/gpt-4.1") {
   return { requests, provider };
 }
 
-test("OpenRouter sends bounded agentic search and tool-free structured extraction offline", async () => {
+test("OpenRouter sends bounded search and source-fetched structured extraction offline", async () => {
   const { provider, requests } = providerWithResponses(
     [
       response(report, 2),
-      response(JSON.stringify({ candidates: [candidate()] })),
+      extractionResponse(JSON.stringify({ candidates: [candidate()] })),
     ],
     "google/test-model",
   );
@@ -93,9 +101,11 @@ test("OpenRouter sends bounded agentic search and tool-free structured extractio
   const extracted = await provider.extract(
     research,
     selectSources(research.urls, 3),
+    options,
     signal,
   );
   assert.equal(extracted.candidates.length, 1);
+  assert.equal(extracted.metadata.fetch_verification, "usage_counter");
   for (const request of requests) {
     assert.equal(
       request.input,
@@ -128,10 +138,43 @@ test("OpenRouter sends bounded agentic search and tool-free structured extractio
     extraction.response_format.json_schema.schema.additionalProperties,
     false,
   );
-  assert.deepEqual(extraction.tools, []);
-  assert.equal(extraction.tool_choice, "none");
-  assert.equal(extraction.max_tool_calls, undefined);
+  assert.equal(
+    extraction.response_format.json_schema.schema.properties.candidates
+      .minItems,
+    1,
+  );
+  assert.equal(
+    extraction.response_format.json_schema.schema.properties.candidates
+      .maxItems,
+    1,
+  );
+  assert.equal(extraction.tools[0].type, "openrouter:web_fetch");
+  assert.equal(extraction.tools[0].parameters.engine, "openrouter");
+  assert.equal(extraction.tools[0].parameters.max_uses, 1);
+  assert.equal(
+    extraction.tools[0].parameters.max_content_tokens,
+    API_LIMITS.fetchContentTokens,
+  );
+  assert.deepEqual(
+    extraction.tools[0].parameters.allowed_domains,
+    search.tools[0].parameters.allowed_domains,
+  );
+  assert.equal(
+    provider.getDiagnostics()[1].fetch_verification,
+    "usage_counter",
+  );
+  assert.equal(provider.getDiagnostics()[1].extraction_candidate_count, 1);
+  assert.equal(
+    provider.getDiagnostics()[1].extraction_shape,
+    "candidates_object",
+  );
+  assert.equal(extraction.tool_choice, "required");
+  assert.equal(extraction.max_tool_calls, 1);
   assert.equal(extraction.max_tokens, API_LIMITS.extractionOutputTokens);
+  const extractionPayload = JSON.parse(extraction.messages[1].content);
+  assert.deepEqual(extractionPayload.source_urls, [url]);
+  assert.equal(extractionPayload.accepted_starts_at_gte, options.from);
+  assert.equal(extractionPayload.accepted_starts_at_lt, options.to);
   assert.ok(!JSON.stringify(research.metadata).includes("untrusted snippet"));
   await assert.rejects(provider.research(options, signal), /api_call_limit/);
   assert.equal(requests.length, 2);
@@ -140,6 +183,7 @@ test("OpenRouter sends bounded agentic search and tool-free structured extractio
     provider.getDiagnostics().map((item) => item.phase),
     ["research", "extraction"],
   );
+  assert.equal(provider.getDiagnostics()[0].extraction_shape, null);
   const copy = provider.getDiagnostics();
   copy[0].usage.cost = 9000;
   assert.equal(provider.getDiagnostics()[0].usage.cost, 0.001);
@@ -215,22 +259,98 @@ test("oversized bodies/reports, invalid JSON, extra candidates and extraction se
     ],
   ]) {
     await assert.rejects(
-      providerWithResponses([response(text)]).provider.extract(
+      providerWithResponses([extractionResponse(text)]).provider.extract(
         { report, urls: [url], metadata: {} },
         selectSources([url], 3),
+        options,
         signal,
       ),
       expected,
     );
   }
   await assert.rejects(
-    providerWithResponses([response('{"candidates":[]}', 1)]).provider.extract(
+    providerWithResponses([
+      response(JSON.stringify({ candidates: [candidate()] }), 1, 1),
+    ]).provider.extract(
       { report, urls: [url], metadata: {} },
       selectSources([url], 3),
+      options,
       signal,
     ),
     /unexpected_extraction_search/,
   );
+});
+
+test("invalid extraction shape records only a bounded candidate count", async () => {
+  const body = JSON.stringify({
+    candidates: [
+      candidate(),
+      { ...candidate(), title: { value: "Other", quote: "Other" } },
+    ],
+  });
+  const { provider } = providerWithResponses([extractionResponse(body)]);
+  await assert.rejects(
+    provider.extract(
+      { report, urls: [url], metadata: {} },
+      selectSources([url], 3),
+      options,
+      signal,
+    ),
+    /invalid_extraction_shape/,
+  );
+  const diagnostic = provider.getDiagnostics()[0];
+  assert.equal(diagnostic.extraction_shape, "candidates_object");
+  assert.equal(diagnostic.extraction_candidate_count, 2);
+  assert.ok(!JSON.stringify(diagnostic).includes("Other"));
+  assert.ok(!JSON.stringify(diagnostic).includes(url));
+});
+
+test("strict local validation accepts only narrow candidate-envelope aliases", async () => {
+  for (const [body, shape] of [
+    [JSON.stringify([candidate()]), "candidate_array"],
+    [
+      JSON.stringify({ event_candidates: [candidate()] }),
+      "schema_named_object",
+    ],
+    [
+      JSON.stringify(JSON.stringify({ candidates: [candidate()] })),
+      "encoded_candidate_envelope",
+    ],
+  ]) {
+    const value = extractionResponse(body);
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider } = providerWithResponses([value]);
+    const extracted = await provider.extract(
+      { report, urls: [url], metadata: {} },
+      selectSources([url], 3),
+      options,
+      signal,
+    );
+    assert.equal(extracted.candidates.length, 1);
+    assert.equal(
+      extracted.metadata.fetch_verification,
+      "required_tool_and_source_coverage",
+    );
+    assert.equal(provider.getDiagnostics()[0].extraction_shape, shape);
+    assert.equal(provider.getDiagnostics()[0].extraction_candidate_count, 1);
+  }
+  for (const body of [
+    JSON.stringify({ events: [candidate()] }),
+    JSON.stringify({ candidates: [candidate()], extra: true }),
+  ]) {
+    const { provider } = providerWithResponses([extractionResponse(body)]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        selectSources([url], 3),
+        options,
+        signal,
+      ),
+      { code: "invalid_extraction_shape" },
+    );
+    assert.equal(provider.getDiagnostics()[0].extraction_shape, "invalid");
+    assert.equal(provider.getDiagnostics()[0].extraction_candidate_count, null);
+  }
 });
 
 test("cancellation and network failures never retry or expose transport details", async () => {
@@ -274,7 +394,7 @@ test("OpenRouter results pass through draft validation and repeat-run deduplicat
   for (let run = 0; run < 2; run++) {
     const { provider } = providerWithResponses([
       response(report, 1),
-      response(JSON.stringify({ candidates: [candidate()] })),
+      extractionResponse(JSON.stringify({ candidates: [candidate()] })),
     ]);
     const summary = await runIngestion(options, {
       provider,
@@ -290,9 +410,34 @@ test("OpenRouter results pass through draft validation and repeat-run deduplicat
   assert.equal(repository.sources.size, 1);
   assert.equal(
     repository.sources.get(url).raw_payload.evidence_kind,
-    "model_web_search_report",
+    "model_web_search_report_with_source_fetch",
+  );
+  assert.equal(
+    repository.sources.get(url).raw_payload.extraction.fetch_tool_calls,
+    1,
   );
   assert.ok(!JSON.stringify(repository.runs).includes(key));
+});
+
+test("a fetched-page conflict returns a fact-free rejection without creating an event", async () => {
+  const { provider } = providerWithResponses([
+    response(report, 1),
+    extractionResponse(JSON.stringify({ candidates: [rejectedCandidate()] })),
+  ]);
+  const repository = memoryRepository();
+  const summary = await runIngestion(options, {
+    provider,
+    repository,
+    signal,
+  });
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.events_written, 0);
+  assert.equal(summary.sources_unlinked, 1);
+  assert.ok(summary.errors.includes("source_page_conflict"));
+  assert.equal(
+    repository.sources.get(url).last_attempt_error,
+    "source_page_conflict",
+  );
 });
 
 test("only annotated URLs can become drafts; an empty search skips extraction", async () => {
@@ -372,19 +517,151 @@ test("request timeout is bounded and invalid HTTP JSON fails safely", async (t) 
   );
 });
 
-test("missing extraction usage stays unknown rather than inventing zero cost", async () => {
-  const value = response(JSON.stringify({ candidates: [] }));
-  value.usage = null;
+test("missing extraction billing fields stay unknown when fetch usage is verified", async () => {
+  const value = extractionResponse(
+    JSON.stringify({ candidates: [candidate()] }),
+  );
+  value.usage = { server_tool_use: { web_fetch_requests: 1 } };
   value.choices[0].message.tool_calls = null;
   value.choices[0].message.annotations = null;
   const { provider } = providerWithResponses([value]);
   const extracted = await provider.extract(
     { report, urls: [url], metadata: {} },
     selectSources([url], 3),
+    options,
     signal,
   );
-  assert.equal(extracted.metadata.usage, null);
+  assert.deepEqual(extracted.metadata.usage, {
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+    cost: null,
+  });
   assert.equal(extracted.metadata.search_tool_calls, null);
+  assert.equal(extracted.metadata.fetch_tool_calls, 1);
+});
+
+test("source fetch verification requires one bounded fetch per selected listing", async () => {
+  const second = "https://luma.com/second-event";
+  const sources = selectSources([url, second], 3);
+  const complete = JSON.stringify({
+    candidates: [candidate(), rejectedCandidate(second)],
+  });
+  const cases = [
+    [0, "source_fetch_incomplete"],
+    [1, "source_fetch_incomplete"],
+    [3, "source_fetch_limit_exceeded"],
+    [11, "source_fetch_limit_exceeded"],
+  ];
+  for (const [fetches, expected] of cases) {
+    const value = extractionResponse(complete, fetches);
+    const { provider, requests } = providerWithResponses([value]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        sources,
+        options,
+        signal,
+      ),
+      { code: expected },
+    );
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.tools[0].parameters.max_uses, 2);
+    assert.equal(requests[0].body.max_tool_calls, 2);
+  }
+  const valid = extractionResponse(complete, 2);
+  const { provider } = providerWithResponses([valid]);
+  const extracted = await provider.extract(
+    { report, urls: [url], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.equal(extracted.candidates.length, 2);
+  assert.equal(extracted.metadata.fetch_tool_calls, 2);
+  assert.equal(provider.getDiagnostics()[0].fetch_usage, "reported");
+  assert.equal(provider.getDiagnostics()[0].fetch_tool_calls, 2);
+});
+
+test("complete source verdicts safely bridge a missing fetch counter", async () => {
+  const second = "https://luma.com/second-event";
+  const sources = selectSources([url, second], 3);
+  const value = extractionResponse(
+    JSON.stringify({
+      candidates: [candidate(), rejectedCandidate(second)],
+    }),
+  );
+  delete value.usage.server_tool_use.web_fetch_requests;
+  const { provider, requests } = providerWithResponses([value]);
+  const extracted = await provider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.equal(requests[0].body.tool_choice, "required");
+  assert.equal(requests[0].body.max_tool_calls, 2);
+  assert.equal(extracted.candidates.length, 2);
+  assert.equal(extracted.metadata.fetch_tool_calls, null);
+  assert.equal(
+    extracted.metadata.fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+  const [diagnostic] = provider.getDiagnostics();
+  assert.equal(diagnostic.fetch_usage, "missing");
+  assert.equal(
+    diagnostic.fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+});
+
+test("missing fetch counters reject partial, duplicate and untrusted verdict coverage", async () => {
+  const second = "https://luma.com/second-event";
+  const sources = selectSources([url, second], 3);
+  for (const [candidates, expected] of [
+    [[candidate()], "invalid_extraction_shape"],
+    [[candidate(), candidate()], "source_fetch_usage_missing"],
+    [
+      [candidate(), rejectedCandidate("https://luma.com/untrusted")],
+      "source_fetch_usage_missing",
+    ],
+  ]) {
+    const value = extractionResponse(JSON.stringify({ candidates }));
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider } = providerWithResponses([value]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url, second], metadata: {} },
+        sources,
+        options,
+        signal,
+      ),
+      { code: expected },
+    );
+    assert.equal(provider.getDiagnostics()[0].fetch_verification, undefined);
+  }
+});
+
+test("malformed source fetch counters are rejected and diagnosed safely", async () => {
+  for (const fetches of [-1, "1", 0.5]) {
+    const value = extractionResponse(
+      JSON.stringify({ candidates: [candidate()] }),
+      fetches,
+    );
+    const { provider } = providerWithResponses([value]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        selectSources([url], 3),
+        options,
+        signal,
+      ),
+      { code: "invalid_provider_response" },
+    );
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.fetch_usage, "invalid");
+    assert.equal(diagnostic.fetch_tool_calls, null);
+  }
 });
 
 test("bounded provider citations safely bridge a missing search counter", async () => {
@@ -398,7 +675,7 @@ test("bounded provider citations safely bridge a missing search counter", async 
       value.usage.server_tool_use.web_search_requests = null;
     const { provider, requests } = providerWithResponses([
       value,
-      response(JSON.stringify({ candidates: [candidate()] })),
+      extractionResponse(JSON.stringify({ candidates: [candidate()] })),
     ]);
     const repository = memoryRepository();
     const progress = [];
@@ -558,7 +835,7 @@ test("rejected completed responses retain usage even when their structure or con
 test("failed extraction and finalization preserve both requests in the recovery checkpoint", async () => {
   for (const failFinish of [false, true]) {
     const research = response(report, 1);
-    const extraction = response("bad JSON " + key);
+    const extraction = extractionResponse("bad JSON " + key);
     extraction.id = "gen-extraction";
     extraction.usage.cost = 0.002;
     const { provider, requests } = providerWithResponses([

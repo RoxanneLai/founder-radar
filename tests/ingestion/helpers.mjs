@@ -12,6 +12,7 @@ export const fact = (value, quote = report) => ({
 export function candidate(sourceUrl = url) {
   return {
     source_url: sourceUrl,
+    source_verification: { status: "verified", reason: null },
     relevant_to_founders: fact(true),
     title: fact("Founder Test"),
     organizer_name: fact("Test Org"),
@@ -28,6 +29,19 @@ export function candidate(sourceUrl = url) {
     currency_code: fact("USD"),
     registration_status: fact("open"),
   };
+}
+
+export function rejectedCandidate(
+  sourceUrl = url,
+  reason = "source_page_conflict",
+) {
+  const rejected = candidate(sourceUrl);
+  rejected.source_verification = { status: "rejected", reason };
+  for (const key of Object.keys(rejected)) {
+    if (key !== "source_url" && key !== "source_verification")
+      rejected[key] = { value: null, quote: null };
+  }
+  return rejected;
 }
 
 export function memoryRepository() {

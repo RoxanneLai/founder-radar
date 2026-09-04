@@ -21,10 +21,27 @@ const relevantFact = z
     quote: z.string().nullable(),
   })
   .strict();
+const sourceVerification = z
+  .object({
+    status: z.enum(["verified", "rejected"]),
+    reason: z
+      .enum([
+        "source_fetch_failed",
+        "source_not_event_listing",
+        "source_page_conflict",
+        "source_page_past",
+        "source_page_cancelled",
+        "source_page_virtual_only",
+        "source_evidence_insufficient",
+      ])
+      .nullable(),
+  })
+  .strict();
 
 export const candidateSchema = z
   .object({
     source_url: z.string(),
+    source_verification: sourceVerification,
     relevant_to_founders: relevantFact,
     title: textFact,
     organizer_name: textFact,
@@ -41,13 +58,36 @@ export const candidateSchema = z
     currency_code: textFact,
     registration_status: textFact,
   })
-  .strict();
-
-export const extractionSchema = z
-  .object({
-    candidates: z.array(candidateSchema).max(10),
-  })
-  .strict();
+  .strict()
+  .superRefine((candidate, context) => {
+    const facts: Array<{ value: unknown; quote: string | null }> = [
+      candidate.relevant_to_founders,
+      candidate.title,
+      candidate.organizer_name,
+      candidate.starts_at,
+      candidate.ends_at,
+      candidate.time_zone,
+      candidate.venue_name,
+      candidate.address_line,
+      candidate.city,
+      candidate.region,
+      candidate.country_code,
+      candidate.event_format,
+      candidate.price_amount_cents,
+      candidate.currency_code,
+      candidate.registration_status,
+    ];
+    const rejected = candidate.source_verification.status === "rejected";
+    const inconsistent = rejected
+      ? candidate.source_verification.reason === null ||
+        facts.some((fact) => fact.value !== null || fact.quote !== null)
+      : candidate.source_verification.reason !== null;
+    if (inconsistent)
+      context.addIssue({
+        code: "custom",
+        message: "inconsistent source verification verdict",
+      });
+  });
 
 export type Candidate = z.infer<typeof candidateSchema>;
 export type EventDraft = Pick<
@@ -101,6 +141,17 @@ export type ProviderDiagnostic = {
   search_usage: "missing" | "invalid" | "reported";
   search_tool_calls: number | null;
   search_verification?: "usage_counter" | "bounded_citations";
+  fetch_usage: "missing" | "invalid" | "reported";
+  fetch_tool_calls: number | null;
+  fetch_verification?: "usage_counter" | "required_tool_and_source_coverage";
+  extraction_shape:
+    | "candidates_object"
+    | "schema_named_object"
+    | "candidate_array"
+    | "encoded_candidate_envelope"
+    | "invalid"
+    | null;
+  extraction_candidate_count: number | null;
   citation_count: number | null;
   tool_call_count: number | null;
   content_characters: number | null;
@@ -118,6 +169,7 @@ export interface DiscoveryProvider {
   extract(
     research: Research,
     sources: SourceIdentity[],
+    options: SearchOptions,
     signal: AbortSignal,
   ): Promise<Extraction>;
 }

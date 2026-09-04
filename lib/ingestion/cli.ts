@@ -15,7 +15,8 @@ export const INGEST_HELP = [
   "Required live environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",
-  "Limits: 2 API requests, up to 3 hosted searches, no retries, 5-minute run deadline.",
+  "Limits: 2 API requests, up to 3 hosted searches, one hosted fetch per selected source,",
+  "        no retries, 5-minute run deadline.",
   "Use --help to show this message. The end timestamp is exclusive.",
 ].join("\n");
 

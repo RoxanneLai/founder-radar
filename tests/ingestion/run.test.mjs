@@ -37,8 +37,11 @@ test("saves three draft candidates with provenance, then reruns without duplicat
   assert.equal(repo.sources.get(url).discovered_by_run_id, first.run_id);
   assert.equal(
     repo.sources.get(url).raw_payload.evidence_kind,
-    "model_web_search_report",
+    "model_web_search_report_with_source_fetch",
   );
+  assert.deepEqual(repo.sources.get(url).raw_payload.extraction, {
+    response_id: "extraction-test",
+  });
 });
 
 test("a malformed candidate stays unlinked while a valid sibling succeeds", async () => {

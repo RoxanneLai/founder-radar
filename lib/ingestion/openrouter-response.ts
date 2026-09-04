@@ -41,7 +41,10 @@ const responseSchema = z.object({
       total_tokens: count.nullish(),
       cost: z.number().nonnegative().nullish(),
       server_tool_use: z
-        .object({ web_search_requests: count.nullish() })
+        .object({
+          web_search_requests: count.nullish(),
+          web_fetch_requests: count.nullish(),
+        })
         .nullish(),
     })
     .nullish(),
@@ -123,8 +126,12 @@ export function routerMetadata(
         }
       : null,
     search_tool_calls: usage?.server_tool_use?.web_search_requests ?? null,
+    fetch_tool_calls: usage?.server_tool_use?.web_fetch_requests ?? null,
     ...(diagnostic?.search_verification
       ? { search_verification: diagnostic.search_verification }
+      : {}),
+    ...(diagnostic?.fetch_verification
+      ? { fetch_verification: diagnostic.fetch_verification }
       : {}),
   };
 }

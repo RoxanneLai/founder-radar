@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { extractionSchema } from "./contracts.ts";
+import { candidateSchema } from "./contracts.ts";
 import type {
   DiscoveryProvider,
   Extraction,
@@ -29,6 +29,8 @@ import { routerDiagnostic } from "./openrouter-diagnostics.ts";
 export const API_LIMITS = {
   calls: 2,
   searchToolCalls: 3,
+  fetchToolCalls: 10,
+  fetchContentTokens: 6000,
   searchResultsPerCall: 5,
   totalSearchResults: 15,
   searchResultCharacters: 2000,
@@ -74,6 +76,72 @@ function reportedSourceUrls(response: RouterResponse): string[] {
   const selected = new Set<string>();
   for (const url of collect(message.content ?? "")) selected.add(url);
   return [...selected];
+}
+
+function coversEverySource(
+  candidates: unknown[],
+  sources: SourceIdentity[],
+): boolean {
+  if (candidates.length !== sources.length) return false;
+  const expected = new Set(sources.map((source) => source.source_url));
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidateSchema.safeParse(candidate).success) return false;
+    const url =
+      candidate &&
+      typeof candidate === "object" &&
+      "source_url" in candidate &&
+      typeof candidate.source_url === "string"
+        ? sourceIdentity(candidate.source_url)?.source_url
+        : null;
+    if (!url || !expected.has(url) || seen.has(url)) return false;
+    seen.add(url);
+  }
+  return seen.size === expected.size;
+}
+
+function extractionCandidates(
+  value: unknown,
+  diagnostic: ProviderDiagnostic,
+  allowEncoded = true,
+): unknown[] | null {
+  if (allowEncoded) diagnostic.extraction_shape = "invalid";
+  if (typeof value === "string" && allowEncoded) {
+    try {
+      const nested = extractionCandidates(JSON.parse(value), diagnostic, false);
+      if (nested) diagnostic.extraction_shape = "encoded_candidate_envelope";
+      return nested;
+    } catch {
+      return null;
+    }
+  }
+  let candidates: unknown[] | null = null;
+  if (Array.isArray(value)) {
+    diagnostic.extraction_shape = "candidate_array";
+    candidates = value;
+  } else if (value && typeof value === "object") {
+    const keys = Object.keys(value);
+    if (
+      keys.length === 1 &&
+      keys[0] === "candidates" &&
+      "candidates" in value &&
+      Array.isArray(value.candidates)
+    ) {
+      diagnostic.extraction_shape = "candidates_object";
+      candidates = value.candidates;
+    } else if (
+      keys.length === 1 &&
+      keys[0] === "event_candidates" &&
+      "event_candidates" in value &&
+      Array.isArray(value.event_candidates)
+    ) {
+      diagnostic.extraction_shape = "schema_named_object";
+      candidates = value.event_candidates;
+    }
+  }
+  if (candidates && candidates.length <= 100)
+    diagnostic.extraction_candidate_count = candidates.length;
+  return candidates;
 }
 
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
@@ -191,6 +259,29 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     return diagnostic;
   }
 
+  private verifyExtractionFetch(
+    response: RouterResponse,
+    expected: number,
+    completeSourceCoverage: boolean,
+  ): ProviderDiagnostic {
+    const diagnostic = this.diagnostics.at(-1)!;
+    const searches = response.usage?.server_tool_use?.web_search_requests;
+    if (searches != null && searches !== 0)
+      throw new IngestionError("unexpected_extraction_search");
+    const fetches = response.usage?.server_tool_use?.web_fetch_requests;
+    if (fetches == null) {
+      if (!completeSourceCoverage)
+        throw new IngestionError("source_fetch_usage_missing");
+      diagnostic.fetch_verification = "required_tool_and_source_coverage";
+      return diagnostic;
+    }
+    if (fetches < expected) throw new IngestionError("source_fetch_incomplete");
+    if (fetches > expected || fetches > API_LIMITS.fetchToolCalls)
+      throw new IngestionError("source_fetch_limit_exceeded");
+    diagnostic.fetch_verification = "usage_counter";
+    return diagnostic;
+  }
+
   async research(
     options: SearchOptions,
     signal: AbortSignal,
@@ -238,6 +329,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
   async extract(
     research: Research,
     sources: SourceIdentity[],
+    options: SearchOptions,
     signal: AbortSignal,
   ): Promise<Extraction> {
     const response = await this.request(
@@ -245,42 +337,61 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       {
         messages: [
           { role: "system", content: EXTRACTION_INSTRUCTIONS },
-          { role: "user", content: extractionInput(research, sources) },
+          {
+            role: "user",
+            content: extractionInput(research, sources, options),
+          },
         ],
-        tools: [],
-        tool_choice: "none",
+        tools: [
+          {
+            type: "openrouter:web_fetch",
+            parameters: {
+              engine: "openrouter",
+              max_uses: sources.length,
+              max_content_tokens: API_LIMITS.fetchContentTokens,
+              allowed_domains: ALLOWED_DOMAINS,
+            },
+          },
+        ],
+        tool_choice: "required",
+        max_tool_calls: sources.length,
         max_tokens: API_LIMITS.extractionOutputTokens,
         response_format: {
           type: "json_schema",
           json_schema: {
             name: "event_candidates",
             strict: true,
-            schema: z.toJSONSchema(extractionSchema),
+            schema: z.toJSONSchema(
+              z
+                .object({
+                  candidates: z.array(candidateSchema).length(sources.length),
+                })
+                .strict(),
+            ),
           },
         },
       },
       signal,
     );
-    if (response.usage?.server_tool_use?.web_search_requests)
-      throw new IngestionError("unexpected_extraction_search");
     let parsed: unknown;
     try {
       parsed = JSON.parse(response.choices[0].message.content ?? "");
     } catch {
       throw new IngestionError("invalid_extraction_json");
     }
+    const responseDiagnostic = this.diagnostics.at(-1)!;
+    const candidates = extractionCandidates(parsed, responseDiagnostic);
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !("candidates" in parsed) ||
-      !Array.isArray(parsed.candidates) ||
-      parsed.candidates.length > sources.length
-    )
+    if (!candidates || candidates.length !== sources.length)
       throw new IngestionError("invalid_extraction_shape");
+    const verifiedDiagnostic = this.verifyExtractionFetch(
+      response,
+      sources.length,
+      coversEverySource(candidates, sources),
+    );
     return {
-      candidates: parsed.candidates,
-      metadata: routerMetadata(response, this.model),
+      candidates,
+      metadata: routerMetadata(response, this.model, verifiedDiagnostic),
     };
   }
 }
