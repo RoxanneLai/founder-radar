@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live discovery, extraction, and draft persistence now work, but production acceptance is still pending.** A bounded Luna replay produced three drafts; manual checks accepted two and rejected one stale recurring Meetup date. The two accepted drafts were subsequently imported from the preserved provider response through the normal validation and persistence boundary, and the stale draft was archived without deleting its audit evidence. Later source-fetch responses exposed several noncanonical JSON shapes. Narrow deterministic adapters handle known safe variants, and one optional bounded schema-repair request handles an otherwise source-complete variant without receiving page content or permission to invent facts. The repair-only acceptance check passed with Luna; one fresh end-to-end run remains the live gate.
+**Live discovery, extraction, schema repair, and draft persistence now work.** A fresh bounded Luna run on September 8 succeeded with two discovered sources, two nonfixture drafts, no unlinked sources, and no errors. Its one conditional repair converted both source-complete candidates to the canonical schema. Operator review archived the already-started event and found no blockers on the upcoming draft. The remaining production check is one separately approved repeat of the same bounded window to confirm source reuse without duplicates; publication of the remaining draft is a separate product decision.
 
 ## What happens in one run
 
@@ -251,11 +251,13 @@ Requests opt into OpenRouter router metadata so a denied request can be distingu
 
 The isolated repair checkpoint is complete: one Luna request canonicalized the preserved three-candidate response, retained its two usable events and one rejected source, made no searches or database writes, and reported a cost of $0.00208335. The remaining gate is a fresh end-to-end run:
 
-- Run with a small agreed API budget and a current, fixed date window.
-- Confirm extraction records either an exact reported fetch count or `required_tool_and_source_coverage`.
-- Verify that stale or conflicting pages remain unlinked while current listings become drafts.
-- Verify up to three real upcoming NYC events against their original links, including year, timezone, venue, relevance, and unknown fields.
-- Confirm all new events remain nonfixture drafts and have source URLs/evidence.
-- Repeat the same bounded search and confirm the same source identities reuse records.
+- The September 8–22 run `a1344244-a8ee-4361-bc79-cb0ada11b150` succeeded with two newly discovered Meetup sources, two event drafts, no unlinked sources, and no errors.
+- Research used bounded provider citations. Extraction used exact required-tool/source coverage because OpenRouter omitted the fetch counter, then one accepted repair produced two canonical candidates.
+- Both original Meetup listings matched the stored titles, dates, times, NYC venue, and founder/investor relevance. Organizer, price, and registration status stayed unknown rather than being inferred. The secondary Eventbrite ticket pages rate-limited independent inspection.
+- Both records are nonfixture drafts with source evidence. One began at 7:00 p.m. on September 8 and was persisted about four minutes after it started because the explicitly selected window began at midnight; it should not be published. The September 21 event remained upcoming at review time.
+- The three model requests reported $0.03188156 combined cost, including the $0.00172905 repair. Search count and any separate hosted-search cost remain unknown because OpenRouter omitted the search-usage counter.
+- Cleanup complete: the already-started event was archived with its source evidence intact, the upcoming event's operator preview had no blockers, and both sandbox-interrupted zero-source runs were marked cancelled with `run_cancelled` audit summaries.
+- Still pending: separately approve one repeat of this exact window to confirm that both source identities are reused without duplicate records, and decide whether the warning-bearing upcoming draft should be published.
+
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
 - Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.
