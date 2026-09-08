@@ -2,85 +2,140 @@
 
 **Don’t show me every startup event. Show me the ones worth attending.**
 
-FounderRadar explores how an AI event scout could turn fragmented NYC startup listings into a short, explainable list of rooms worth being in.
+FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: V0
+## Current milestone: draft review and publication
 
-A static product prototype with six **fictional** NYC startup events. Includes deterministic networking-score ranking, category tags, founder/investor/networking scores, sample registration urgency, recommendation explanations, optional downsides, source labels, prices, venues, and New York time formatting.
+V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation and a bounded, manually triggered ingestion agent. The agent implementation is tested offline; paid live-data verification is still pending.
 
-**Not implemented:** real discovery, model calls, database storage, deduplication, personalization, authentication, save/dismiss, email, or scheduled jobs. No keys or accounts are needed for V0. Scores, availability, hosts, venues, and event details are illustrative, not verified claims. Dates are fixed at September 1–6, 2026; this is a sample edition, not a rolling live feed.
+The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
 
-## Start here
+See [the dashboard guide](docs/DASHBOARD.md) for configuration, [the local readiness checkpoint](docs/LOCAL-READINESS.md) for current setup status, and [integration progress](docs/INTEGRATION-PROGRESS.md) for earlier verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
 
-See [the complete V0 walkthrough](docs/V0-WALKTHROUGH.md) for setup from an empty folder, exact file changes, commands, verification, and the first meaningful commit. See [complete application source](docs/V0-COMPLETE-CODE.md) for full copyable file contents.
+The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. Apply pending migrations before using this workflow or the updated database-backed dashboard. No real events were published during the [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
-### Run this source
+### Preview an ingestion run without spending money
 
-Use Node.js 24 LTS (the project requires Node >=22.13 for its Node-based TypeScript tests), npm, and Git.
+```bash
+npm run ingest -- --limit 3
+```
+
+After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent now uses OpenRouter, with model and reasoning-effort defaults in `config/ingestion.json` and independent per-run `--model` and `--effort` overrides. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
+
+## Run the web application
+
+Use Node.js 24 LTS and npm.
 
 ```bash
 npm ci
-npm run dev:next
+npm run dev
 ```
 
-Open http://localhost:3000. Both the Work checkout and the portable download include a lockfile; use `npm ci` to install the locked dependencies.
+Open http://localhost:3000.
+
+For database access, configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` as described in the [dashboard guide](docs/DASHBOARD.md). The local stack enables authentication with sign-ups disabled, keeping anonymous dashboard reads separate from privileged ingestion. No service-role key or OpenAI key is needed for page loads. With only the seeded fixtures, the connected home page is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
+
+## Run the local database
+
+Local Supabase requires a Docker-compatible container runtime. Start your runtime (Docker Desktop has been verified for this project), then start the local stack:
+
+```bash
+npm run db:start
+```
+
+Supabase Studio runs at http://localhost:54323. Stop the local stack with `npm run db:stop`.
+
+Use `db:start` for ordinary startup; resetting the database is not part of the daily workflow. These scripts operate on the local stack, which is for development only and must not be exposed publicly.
+
+To apply newly added migrations without resetting existing data, run `npm run db:migrate`.
+
+After changing local service configuration, use `npm run db:stop` followed by `npm run db:start`. The default stop preserves local data; never add `--no-backup`. Authentication is enabled for local API credentials, not for a public login or sign-up feature. `npm run db:status` displays local credentials: keep that output private and use only the anonymous/public key for the dashboard.
+
+The database is reproducible from committed files:
+
+| Path                       | Responsibility                                          |
+| -------------------------- | ------------------------------------------------------- |
+| `supabase/config.toml`     | Local service and database configuration                |
+| `supabase/migrations/`     | Versioned database schema                               |
+| `supabase/seed.sql`        | Six deterministic fictional events and their provenance |
+| `supabase/tests/database/` | pgTAP database contract tests                           |
+
+Never commit hosted Supabase credentials, service-role keys, `OPENROUTER.key`, downloaded live data, or `.env` files.
+
+### Optional: rebuild the local fixture database
+
+**Destructive:** `db:reset` deletes this project's local database contents, including any live listings you have collected, and replays migrations plus fictional seed data. Back up data you want to keep first. Run this only when you deliberately want a fresh fixture database:
+
+```bash
+npm run db:reset
+```
+
+This command does not reset or deploy a hosted Supabase project.
+
+## Data flow
+
+The schema is designed for discovery before normalization:
+
+1. A discovery agent creates a `search_runs` record.
+2. Each selected listing is upserted into `event_sources` with its URL, provider identity, model-generated evidence report, and hosted source-fetch metadata.
+3. A source may remain unlinked while extraction is incomplete.
+4. Normalized sources are linked to canonical `events` records.
+5. Only events explicitly marked `published` are readable through the public application role.
+
+The manual review boundary records a private approval snapshot in `event_publication_reviews` and exposes only a selected canonical `public_registration_url` on the event. Publication never happens as a side effect of discovery or a page load.
+
+This preserves the latest source snapshot and its original discovery-run attribution. It does not yet retain every historical fetch; append-only observations can be added when needed. Raw source records and search-run diagnostics are not publicly readable. The main dashboard explicitly excludes seeded events marked `is_fixture = true`.
+
+## Application architecture
+
+| File                       | Responsibility                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `lib/types.ts`             | Original fixture contract and shared categories                                   |
+| `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                                |
+| `lib/dashboard/`           | Anonymous server-only reads, validation, public card contract, and sample adapter |
+| `lib/review/`              | Local operator CLI, evidence review, public preview, and explicit publication     |
+| `lib/events.ts`            | Deterministic ranking, score bands, and formatting                                |
+| `components/EventCard.tsx` | Event presentation                                                                |
+| `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                     |
+| `app/page.tsx`             | Request-time published event feed                                                 |
+| `app/sample/page.tsx`      | Separate static fictional edition                                                 |
+| `supabase/`                | V1 persistence, provenance, seed data, and database tests                         |
+
+The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. Ingestion remains separate from the read-only dashboard; page loads never make paid API calls.
+
+## Verification
 
 ```bash
 npm run lint
 npm run typecheck
-npm run test:unit
-npm run build:next
+npm test
+npm run build
 npm run test:next
-npm run start:next
+npm run test:next:runtime
 ```
 
-The final command serves the production Next.js build at http://localhost:3000. Stop the development server first so the port is free.
+Run `build` before the two production checks. `test:next:runtime` uses only synthetic HTTP responses and temporary local ports; it needs permission to start local servers. Database checks require the local Supabase stack.
 
-## Architecture
+```bash
+npm run db:test
+npm run db:lint
+```
 
-| File                        | Responsibility                                                        |
-| --------------------------- | --------------------------------------------------------------------- |
-| `lib/types.ts`              | The typed `StartupEvent` contract and constrained categories/statuses |
-| `lib/mock-events.ts`        | Explicitly fictional fixtures; intentionally not pre-sorted           |
-| `lib/events.ts`             | Pure deterministic sorting, score bands, date and price formatting    |
-| `components/ScoreBadge.tsx` | Reusable labeled score presentation                                   |
-| `components/EventCard.tsx`  | A single event, recommendation, tradeoff, and details                 |
-| `app/page.tsx`              | Composes and ranks the shortlist; derives summary counts              |
-| `app/layout.tsx`            | Page metadata, root layout, and global styles                         |
-| `app/globals.css`           | Tailwind and responsive FounderRadar visual design                    |
-| `tests/events.test.mjs`     | Ranking, date, currency, and fixture-contract checks                  |
-| `tests/next-html.test.mjs`  | Checks the HTML emitted by the standard Next.js build                 |
+The database contract tests expect the fictional seed events. Prefer `npm run db:test:isolated`: it creates a disposable database inside the local Supabase Docker container, applies migrations and seeds, runs contracts, the real review CLI, and concurrency checks, and removes only that disposable database. Do not reset a database containing data you want to keep just to run tests. See the [review checkpoint](docs/REVIEW-PUBLISH-PROGRESS.md) for current verification and local installation limitations.
 
-The homepage and cards are server components. V0 needs no client state, provider adapters, or API routes. Readonly fixtures discourage mutation; ranking returns a new array. Ties sort by start time, then ID. Scores are independent hand-authored signals, **not an average** and not model output. Fixed date offsets plus `America/New_York` formatting avoid changing displayed times with the viewer’s location. No real registration links are attached to fictional events.
+## Roadmap
 
-This is a single-user product prototype, not a user-specific recommendation system. Do not describe V0 as an operational AI pipeline in a portfolio.
+| Status                    | Scope                                                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                     |
+| Built; live check pending | Manually triggered OpenRouter web-search ingestion, configurable model, source evidence, draft-only persistence, and tests |
+| Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                |
+| Implemented and tested    | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                 |
+| Implemented and tested    | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links              |
+| Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation          |
 
-## Work hosting vs. standard Next.js
+The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Configure the host dashboard using its guide; the separately approved live-data gate remains the next milestone. Real event collection does not depend on finishing AI scoring first.
 
-The Work checkout retains its Vinext/Cloudflare hosting starter and build scripts. `npm run dev` and `npm run build` in that checkout are Work hosting commands. `dev:next`, `build:next`, and `start:next` use **actual Next.js** with the same app code. The portable ZIP uses standard Next.js for its default commands and omits Work infrastructure and unused UI catalog code.
+## Historical development records
 
-`tsconfig.json` checks app, components, hooks, and library source; it does not treat hosting-only Worker/D1 examples as Next.js application modules. Work build validation handles the hosting bundle. No D1 or Supabase binding is enabled or used by V0. The `vendor/` CSS file and `tw-animate-css` import come from the Work starter and are retained so the exact same stylesheet is portable; they add no product features.
-
-For a later Vercel deployment of the Work checkout, select the Next.js preset, set build command to `npm run build:next`, and use `.next` as the Next.js output. The portable source uses normal Next.js defaults. No Vercel deployment has been performed in this phase.
-
-## Quality checks
-
-- Unit tests cover nonmutating ranking, deterministic ties, IDs and score ranges, free/paid prices, and New York daylight saving time.
-- Shared HTML assertions verify card count and order, metadata, urgency states, optional downsides, mock labeling, and absence of real registration links.
-- CI runs lint, application type checking, unit tests, a standard Next.js build, and the Next.js HTML check.
-- Responsive breakpoints, readable score labels, semantic headings, and a keyboard skip link are implemented. Browser-based visual/accessibility testing is a separate manual acceptance step; do not equate HTML checks with a browser audit.
-
-## Roadmap — future work, not implemented
-
-| Version | Scope                                                                          |
-| ------- | ------------------------------------------------------------------------------ |
-| V1      | Supabase/Postgres: canonical `events`, separate `event_sources`, `search_runs` |
-| V2      | Structured LLM scoring and explanations                                        |
-| V3      | Structured extraction from messy page content                                  |
-| V4      | Swappable discovery adapters and search providers                              |
-| V5      | Deterministic deduplication; LLM comparison only for uncertain matches         |
-| V6      | Daily discovery pipeline and digest generation                                 |
-| V7      | Personal preferences and recommendation relevance                              |
-| V8      | Feedback, evaluation data, prompt regression tests, and product metrics        |
-
-Use deterministic software for deterministic problems and LLMs for semantic problems. Prompts will live in separate files when those phases begin. **Stop at V0 until it works and the product experience is accepted.**
+The original [V0 walkthrough](docs/archive/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/archive/V0-COMPLETE-CODE.md) are archived records of the browser-based ChatGPT development phase. Their contents are intentionally preserved, including obsolete commands and setup details. Use this README and the actual source files for current development. The formatter skips `docs/archive/` to avoid rewriting those snapshots.

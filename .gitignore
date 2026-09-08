@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+/codex-tmp/
+
+# supabase local state
+/supabase/.branches/
+/supabase/.temp/
 
 # next.js
 /.next/
@@ -32,6 +37,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+OPENROUTER.key
 
 # vercel
 .vercel
