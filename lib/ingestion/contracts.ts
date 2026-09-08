@@ -28,7 +28,9 @@ const priceFact = z
   .strict();
 const relevantFact = z
   .object({
-    value: z.boolean().nullable(),
+    // A selected event is either explicitly relevant or rejected. `false` is
+    // not a usable event fact and must not survive structured extraction.
+    value: z.literal(true).nullable(),
     quote: z.string().nullable(),
   })
   .strict();
@@ -92,7 +94,9 @@ export const candidateSchema = z
     const inconsistent = rejected
       ? candidate.source_verification.reason === null ||
         facts.some((fact) => fact.value !== null || fact.quote !== null)
-      : candidate.source_verification.reason !== null;
+      : candidate.source_verification.reason !== null ||
+        candidate.relevant_to_founders.value !== true ||
+        !candidate.relevant_to_founders.quote?.trim();
     if (inconsistent)
       context.addIssue({
         code: "custom",

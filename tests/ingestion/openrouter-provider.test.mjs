@@ -246,6 +246,11 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
       .maxItems,
     1,
   );
+  const relevanceValueSchema =
+    extraction.response_format.json_schema.schema.properties.candidates.items
+      .properties.relevant_to_founders.properties.value;
+  assert.ok(JSON.stringify(relevanceValueSchema).includes("true"));
+  assert.ok(!JSON.stringify(relevanceValueSchema).includes("false"));
   assert.equal(extraction.tools[0].type, "openrouter:web_fetch");
   assert.equal(extraction.tools[0].parameters.engine, "openrouter");
   assert.equal(extraction.tools[0].parameters.max_uses, 1);

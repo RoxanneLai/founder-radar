@@ -110,6 +110,12 @@ test("source-page rejection verdicts stay unlinked and cannot carry facts", () =
   const inconsistent = candidate();
   inconsistent.source_verification.reason = "source_page_conflict";
   assert.throws(() => normalize(inconsistent), /invalid_candidate/);
+  for (const relevance of [fact(false), fact(null), fact(true, null)]) {
+    assert.throws(
+      () => normalize({ ...candidate(), relevant_to_founders: relevance }),
+      /invalid_candidate/,
+    );
+  }
 });
 
 test("unknown or unsupported optional fields stay unknown; missing core fields stay unlinked", () => {
@@ -199,7 +205,11 @@ test("rejects non-NYC, virtual, irrelevant, out-of-range and mismatched-source l
     /unsupported_event_format/,
   );
   assert.throws(
-    () => normalize({ ...candidate(), relevant_to_founders: fact(false) }),
+    () =>
+      normalize({
+        ...candidate(),
+        relevant_to_founders: fact(true, "unsupported relevance evidence"),
+      }),
     /irrelevant_event/,
   );
   assert.throws(

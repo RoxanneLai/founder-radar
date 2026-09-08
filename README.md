@@ -129,7 +129,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                   |
 | Live checkpoint underway | OpenRouter discovery, source verification, two manually validated real drafts, optional bounded schema repair, and tests |
-| Next                     | Improve repeat-run relevance consistency, then decide whether to publish the remaining reviewed draft                    |
+| Next                     | Run one controlled refresh under the tightened relevance contract, then decide whether to publish the remaining draft    |
 | Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states               |
 | Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links            |
 | Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation        |
