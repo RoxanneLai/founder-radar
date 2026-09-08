@@ -65,6 +65,8 @@ function providerWithResponses(
   responses,
   model = "openai/gpt-4.1",
   effort = "low",
+  repairModel = "openai/gpt-5.6-luna",
+  repairEffort = "medium",
 ) {
   const requests = [];
   const provider = new OpenRouterSearchProvider(
@@ -84,6 +86,8 @@ function providerWithResponses(
         headers: { "content-type": "application/json" },
       });
     },
+    repairModel,
+    repairEffort,
   );
   return { requests, provider };
 }
@@ -202,6 +206,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     );
     assert.equal(request.init.redirect, "error");
     assert.equal(request.init.headers.Authorization, "Bearer " + key);
+    assert.equal(request.init.headers["X-OpenRouter-Metadata"], "enabled");
     assert.equal(request.body.model, "google/test-model");
     assert.deepEqual(request.body.reasoning, {
       effort: "low",
@@ -261,6 +266,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     provider.getDiagnostics()[1].extraction_candidate_format,
     "canonical",
   );
+  assert.equal(provider.getDiagnostics()[1].repair_validation, null);
   assert.equal(provider.getDiagnostics()[1].extraction_schema_valid_count, 1);
   assert.equal(provider.getDiagnostics()[1].extraction_source_match_count, 1);
   assert.equal(
@@ -305,7 +311,7 @@ test("credit, rate, authentication and provider errors stop without retries or r
     [402, "provider_quota_or_rate_limit"],
     [429, "provider_quota_or_rate_limit"],
     [401, "provider_authentication_failed"],
-    [403, "provider_authentication_failed"],
+    [403, "provider_access_denied"],
     [503, "provider_request_failed"],
   ]) {
     for (const httpStatus of [status, 200]) {
@@ -320,6 +326,56 @@ test("credit, rate, authentication and provider errors stop without retries or r
       assert.equal(requests.length, 1);
     }
   }
+  const denial = providerWithResponses([
+    {
+      httpStatus: 403,
+      body: {
+        error: {
+          code: 403,
+          message: "No endpoints satisfy the data policy " + key,
+        },
+        openrouter_metadata: {
+          attempt: 0,
+          endpoints: {
+            total: 2,
+            available: [{ selected: false }, { selected: false }],
+          },
+          pipeline: [],
+        },
+      },
+    },
+  ]).provider;
+  await assert.rejects(denial.research(options, signal), (error) => {
+    assert.equal(error.code, "provider_access_denied");
+    return true;
+  });
+  const [denialDiagnostic] = denial.getDiagnostics();
+  assert.equal(denialDiagnostic.access_denial, "data_policy");
+  assert.equal(denialDiagnostic.router_attempt, 0);
+  assert.equal(denialDiagnostic.router_endpoint_total, 2);
+  assert.equal(denialDiagnostic.router_endpoint_available_count, 2);
+  assert.equal(denialDiagnostic.router_endpoint_selected_count, 0);
+  assert.equal(denialDiagnostic.router_guardrail_stage_count, 0);
+  assert.ok(!JSON.stringify(denialDiagnostic).includes(key));
+  const guardrail = providerWithResponses([
+    {
+      httpStatus: 403,
+      body: {
+        error: { code: 403, message: key },
+        openrouter_metadata: {
+          attempt: 0,
+          pipeline: [{ type: "guardrail", private_details: key }],
+        },
+      },
+    },
+  ]).provider;
+  await assert.rejects(guardrail.research(options, signal), {
+    message: "provider_access_denied",
+  });
+  const [guardrailDiagnostic] = guardrail.getDiagnostics();
+  assert.equal(guardrailDiagnostic.access_denial, "guardrail");
+  assert.equal(guardrailDiagnostic.router_guardrail_stage_count, 1);
+  assert.ok(!JSON.stringify(guardrailDiagnostic).includes(key));
 });
 
 test("incomplete, refused, malformed, missing-search and over-budget responses fail closed", async () => {
@@ -527,7 +583,15 @@ test("legacy flat compatibility rejects extra keys and inconsistent verdicts", a
   for (const candidateValue of [extra, inconsistent]) {
     const value = extractionResponse(JSON.stringify([candidateValue]));
     delete value.usage.server_tool_use.web_fetch_requests;
-    const { provider } = providerWithResponses([value]);
+    const invalidRepair = response(
+      JSON.stringify({
+        candidates: [{ ...candidate(), extra: "still invalid" }],
+      }),
+    );
+    const { provider, requests } = providerWithResponses([
+      value,
+      invalidRepair,
+    ]);
     await assert.rejects(
       provider.extract(
         { report, urls: [url], metadata: {} },
@@ -535,12 +599,14 @@ test("legacy flat compatibility rejects extra keys and inconsistent verdicts", a
         options,
         signal,
       ),
-      { code: "source_fetch_usage_missing" },
+      { code: "invalid_repair_output" },
     );
-    const [diagnostic] = provider.getDiagnostics();
-    assert.equal(diagnostic.extraction_candidate_format, "invalid");
-    assert.equal(diagnostic.extraction_schema_valid_count, 0);
-    assert.ok(!JSON.stringify(diagnostic).includes("Invented"));
+    const diagnostics = provider.getDiagnostics();
+    assert.equal(requests.length, 2);
+    assert.equal(diagnostics[0].extraction_candidate_format, "invalid");
+    assert.equal(diagnostics[0].extraction_schema_valid_count, 0);
+    assert.equal(diagnostics[1].phase, "repair");
+    assert.ok(!JSON.stringify(diagnostics).includes("Invented"));
   }
 });
 
@@ -595,7 +661,15 @@ test("legacy nested compatibility rejects extra keys and inconsistent verdicts",
   for (const candidateValue of [extra, inconsistent]) {
     const value = extractionResponse(JSON.stringify([candidateValue]));
     delete value.usage.server_tool_use.web_fetch_requests;
-    const { provider } = providerWithResponses([value]);
+    const invalidRepair = response(
+      JSON.stringify({
+        candidates: [{ ...candidate(), extra: "still invalid" }],
+      }),
+    );
+    const { provider, requests } = providerWithResponses([
+      value,
+      invalidRepair,
+    ]);
     await assert.rejects(
       provider.extract(
         { report, urls: [url], metadata: {} },
@@ -603,12 +677,142 @@ test("legacy nested compatibility rejects extra keys and inconsistent verdicts",
         options,
         signal,
       ),
-      { code: "source_fetch_usage_missing" },
+      { code: "invalid_repair_output" },
     );
-    const [diagnostic] = provider.getDiagnostics();
-    assert.equal(diagnostic.extraction_candidate_format, "invalid");
-    assert.equal(diagnostic.extraction_schema_valid_count, 0);
-    assert.ok(!JSON.stringify(diagnostic).includes("Invented"));
+    const diagnostics = provider.getDiagnostics();
+    assert.equal(requests.length, 2);
+    assert.equal(diagnostics[0].extraction_candidate_format, "invalid");
+    assert.equal(diagnostics[0].extraction_schema_valid_count, 0);
+    assert.equal(diagnostics[1].phase, "repair");
+    assert.ok(!JSON.stringify(diagnostics).includes("Invented"));
+  }
+});
+
+test("one tool-free repair call handles only a source-complete schema variant", async () => {
+  const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
+  const first = extractionResponse(JSON.stringify({ candidates: [alternate] }));
+  delete first.usage.server_tool_use.web_fetch_requests;
+  const repaired = response(JSON.stringify({ candidates: [candidate()] }), 0);
+  const { provider, requests } = providerWithResponses(
+    [first, repaired],
+    "openai/gpt-5.6-luna",
+    "medium",
+    "meta/muse-spark-1.3-contributor",
+    "low",
+  );
+  const extracted = await provider.extract(
+    { report, urls: [url], metadata: {} },
+    selectSources([url], 3),
+    options,
+    signal,
+  );
+  assert.deepEqual(extracted.candidates, [candidate()]);
+  assert.equal(extracted.metadata.requested_model, "openai/gpt-5.6-luna");
+  assert.equal(extracted.metadata.repair_applied, true);
+  assert.equal(
+    extracted.metadata.repair.requested_model,
+    "meta/muse-spark-1.3-contributor",
+  );
+  assert.equal(extracted.metadata.repair.requested_effort, "low");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].body.model, "meta/muse-spark-1.3-contributor");
+  assert.deepEqual(requests[1].body.reasoning, {
+    effort: "low",
+    exclude: true,
+  });
+  assert.equal(requests[1].body.max_tokens, API_LIMITS.repairOutputTokens);
+  assert.equal(requests[1].body.response_format.json_schema.strict, true);
+  assert.ok(!("tools" in requests[1].body));
+  assert.ok(!("tool_choice" in requests[1].body));
+  const payload = JSON.parse(requests[1].body.messages[1].content);
+  assert.deepEqual(payload.expected_source_urls, [url]);
+  assert.match(payload.untrusted_candidate_json, /unexpected_wrapper_field/);
+  assert.deepEqual(
+    provider
+      .getDiagnostics()
+      .map((item) => [item.phase, item.requested_model, item.requested_effort]),
+    [
+      ["extraction", "openai/gpt-5.6-luna", "medium"],
+      ["repair", "meta/muse-spark-1.3-contributor", "low"],
+    ],
+  );
+  assert.equal(
+    provider.getDiagnostics()[0].fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+  assert.equal(
+    provider.getDiagnostics()[1].extraction_candidate_format,
+    "canonical",
+  );
+  assert.equal(provider.getDiagnostics()[1].repair_validation, "accepted");
+});
+
+test("an invalid reported fetch count fails before spending a repair call", async () => {
+  const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
+  const first = extractionResponse(
+    JSON.stringify({ candidates: [alternate] }),
+    0,
+  );
+  const { provider, requests } = providerWithResponses([first]);
+  await assert.rejects(
+    provider.extract(
+      { report, urls: [url], metadata: {} },
+      selectSources([url], 3),
+      options,
+      signal,
+    ),
+    { code: "source_fetch_incomplete" },
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(provider.getDiagnostics().length, 1);
+});
+
+test("repair rejects invented facts and any reported tool use without retrying", async () => {
+  const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
+  const original = extractionResponse(
+    JSON.stringify({ candidates: [alternate] }),
+  );
+  for (const [repair, code] of [
+    [
+      response(
+        JSON.stringify({
+          candidates: [
+            {
+              ...candidate(),
+              venue_name: { value: "Invented Place", quote: report },
+            },
+          ],
+        }),
+        0,
+      ),
+      "invalid_repair_output",
+    ],
+    [
+      extractionResponse(JSON.stringify({ candidates: [candidate()] }), 1),
+      "unexpected_repair_tools",
+    ],
+  ]) {
+    const { provider, requests } = providerWithResponses([
+      structuredClone(original),
+      repair,
+    ]);
+    await assert.rejects(
+      provider.extract(
+        { report, urls: [url], metadata: {} },
+        selectSources([url], 3),
+        options,
+        signal,
+      ),
+      { code },
+    );
+    assert.equal(requests.length, 2);
+    assert.equal(
+      provider.getDiagnostics()[1].repair_validation,
+      code === "unexpected_repair_tools"
+        ? "unexpected_tool_use"
+        : "scalar_preservation_failed",
+    );
+    assert.ok(!JSON.stringify(provider.getDiagnostics()).includes("Invented"));
   }
 });
 
@@ -920,7 +1124,7 @@ test("missing fetch counters safely diagnose partial, invalid, duplicate and unt
     ],
     [
       [malformed, rejectedCandidate(second)],
-      "source_fetch_usage_missing",
+      "invalid_repair_output",
       { valid: 1, matched: 2, duplicates: 0, untrusted: 0 },
     ],
     [
@@ -936,7 +1140,18 @@ test("missing fetch counters safely diagnose partial, invalid, duplicate and unt
   ]) {
     const value = extractionResponse(JSON.stringify({ candidates }));
     delete value.usage.server_tool_use.web_fetch_requests;
-    const { provider } = providerWithResponses([value]);
+    const repairable = expected === "invalid_repair_output";
+    const responses = [value];
+    if (repairable) {
+      responses.push(
+        response(
+          JSON.stringify({
+            candidates: [{ ...candidate(), extra: "still invalid" }],
+          }),
+        ),
+      );
+    }
+    const { provider, requests } = providerWithResponses(responses);
     await assert.rejects(
       provider.extract(
         { report, urls: [url, second], metadata: {} },
@@ -958,6 +1173,8 @@ test("missing fetch counters safely diagnose partial, invalid, duplicate and unt
       diagnostic.extraction_untrusted_source_count,
       counts.untrusted,
     );
+    assert.equal(requests.length, repairable ? 2 : 1);
+    if (repairable) assert.equal(provider.getDiagnostics()[1].phase, "repair");
     assert.ok(!JSON.stringify(diagnostic).includes(url));
     assert.ok(!JSON.stringify(diagnostic).includes(second));
   }

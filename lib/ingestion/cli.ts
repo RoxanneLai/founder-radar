@@ -9,8 +9,10 @@ export const INGEST_HELP = [
   "",
   "npm run ingest -- [--from ISO_TIMESTAMP] [--to ISO_TIMESTAMP] [--limit 1..10]",
   "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",
+  "                 [--repair-model vendor/model-id] [--repair-effort level]",
   "Default: print a plan only. No network, database writes, or API credentials needed.",
   "Model and effort independently override config/ingestion.json (or --config).",
+  "Repair model and effort are independent overrides used only for one tool-free schema repair.",
   "When testing another model, normally supply both --model and --effort.",
   "Effort: none, minimal, low, medium, high, xhigh, or max. No environment overrides.",
   "",
@@ -18,8 +20,8 @@ export const INGEST_HELP = [
   "Required live environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",
-  "Limits: at most 2 API requests, up to 3 hosted searches, one hosted fetch per selected source,",
-  "        no retries, 5-minute run deadline.",
+  "Limits: 2 normal API requests plus at most 1 tool-free repair, up to 3 hosted searches,",
+  "        one hosted fetch per selected source, no retries, 5-minute run deadline.",
   "Use --help to show this message. The end timestamp is exclusive.",
 ].join("\n");
 
@@ -37,6 +39,8 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
         limit: { type: "string" },
         model: { type: "string" },
         effort: { type: "string" },
+        "repair-model": { type: "string" },
+        "repair-effort": { type: "string" },
         config: { type: "string" },
         live: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -52,12 +56,25 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     throw new IngestionError("invalid_cli_arguments");
   }
   if (values.help) return { help: true as const };
-  if (values.model === "" || values.effort === "" || values.config === "")
+  if (
+    values.model === "" ||
+    values.effort === "" ||
+    values["repair-model"] === "" ||
+    values["repair-effort"] === "" ||
+    values.config === ""
+  )
     throw new IngestionError("invalid_cli_arguments");
   if (
     values.effort !== undefined &&
     !REASONING_EFFORTS.includes(
       values.effort as (typeof REASONING_EFFORTS)[number],
+    )
+  )
+    throw new IngestionError("invalid_cli_arguments");
+  if (
+    values["repair-effort"] !== undefined &&
+    !REASONING_EFFORTS.includes(
+      values["repair-effort"] as (typeof REASONING_EFFORTS)[number],
     )
   )
     throw new IngestionError("invalid_cli_arguments");
@@ -77,6 +94,8 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     options,
     model: values.model,
     effort: values.effort,
+    repairModel: values["repair-model"],
+    repairEffort: values["repair-effort"],
     configPath: values.config,
   };
 }

@@ -20,7 +20,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator i
 npm run ingest -- --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent now uses OpenRouter, with model and reasoning-effort defaults in `config/ingestion.json` and independent per-run `--model` and `--effort` overrides. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
+After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a source-complete noncanonical response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
 
 ## Run the web application
 
@@ -125,14 +125,14 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 
 ## Roadmap
 
-| Status                    | Scope                                                                                                                      |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Completed                 | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                     |
-| Built; live check pending | Manually triggered OpenRouter web-search ingestion, configurable model, source evidence, draft-only persistence, and tests |
-| Next                      | Approve a small API budget and verify three real listings plus a repeat run                                                |
-| Implemented and tested    | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                 |
-| Implemented and tested    | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links              |
-| Later                     | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation          |
+| Status                   | Scope                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                   |
+| Live checkpoint underway | OpenRouter discovery, source verification, two manually validated real drafts, optional bounded schema repair, and tests |
+| Next                     | Run and review one fresh bounded discovery window                                                                        |
+| Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states               |
+| Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links            |
+| Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation        |
 
 The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Configure the host dashboard using its guide; the separately approved live-data gate remains the next milestone. Real event collection does not depend on finishing AI scoring first.
 

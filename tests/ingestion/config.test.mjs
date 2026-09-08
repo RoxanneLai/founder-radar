@@ -42,12 +42,14 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.deepEqual(await readModelConfig(), {
     model: "openai/gpt-5.6-luna",
     effort: "medium",
+    repairModel: "openai/gpt-5.6-luna",
+    repairEffort: "medium",
   });
   const dir = await directory(t);
   await mkdir(dir + "/config");
   await writeFile(
     dir + "/config/ingestion.json",
-    '{"model":"anthropic/test-model","effort":"high"}',
+    '{"model":"anthropic/test-model","effort":"high","repair_model":"qwen/test-repair","repair_effort":"none"}',
   );
   // A directory would fail key loading: even paid opt-in must not make a plan read it.
   await mkdir(dir + "/OPENROUTER.key");
@@ -58,6 +60,8 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(plan.status, 0, plan.stderr);
   assert.equal(JSON.parse(plan.stdout).model, "anthropic/test-model");
   assert.equal(JSON.parse(plan.stdout).effort, "high");
+  assert.equal(JSON.parse(plan.stdout).repair.model, "qwen/test-repair");
+  assert.equal(JSON.parse(plan.stdout).repair.effort, "none");
   assert.equal(JSON.parse(plan.stdout).paid_calls, false);
   assert.equal(JSON.parse(plan.stdout).writes, false);
   const override = runCli(dir, ["--model", "google/test-model"]);
@@ -68,6 +72,18 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(effortOverride.status, 0, effortOverride.stderr);
   assert.equal(JSON.parse(effortOverride.stdout).model, "anthropic/test-model");
   assert.equal(JSON.parse(effortOverride.stdout).effort, "low");
+  const repairOverride = runCli(dir, [
+    "--repair-model",
+    "qwen/other-repair",
+    "--repair-effort",
+    "minimal",
+  ]);
+  assert.equal(repairOverride.status, 0, repairOverride.stderr);
+  assert.equal(
+    JSON.parse(repairOverride.stdout).repair.model,
+    "qwen/other-repair",
+  );
+  assert.equal(JSON.parse(repairOverride.stdout).repair.effort, "minimal");
   const both = runCli(dir, [
     "--model",
     "openai/test-model",
@@ -79,12 +95,14 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(JSON.parse(both.stdout).effort, "minimal");
   await writeFile(
     dir + "/other.json",
-    '{"model":"meta-llama/test-model","effort":"xhigh"}',
+    '{"model":"meta-llama/test-model","effort":"xhigh","repair_model":"qwen/custom-repair","repair_effort":"low"}',
   );
   const custom = runCli(dir, ["--config", "other.json"]);
   assert.equal(custom.status, 0, custom.stderr);
   assert.equal(JSON.parse(custom.stdout).model, "meta-llama/test-model");
   assert.equal(JSON.parse(custom.stdout).effort, "xhigh");
+  assert.equal(JSON.parse(custom.stdout).repair.model, "qwen/custom-repair");
+  assert.equal(JSON.parse(custom.stdout).repair.effort, "low");
 });
 
 test("help needs no config or key; paid approval and database validation precede key access", async (t) => {
@@ -95,7 +113,7 @@ test("help needs no config or key; paid approval and database validation precede
   await mkdir(dir + "/config");
   await writeFile(
     dir + "/config/ingestion.json",
-    '{"model":"openai/gpt-4.1","effort":"medium"}',
+    '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"none"}',
   );
   const blocked = runCli(dir, ["--live"]);
   assert.equal(blocked.status, 1);
@@ -114,7 +132,7 @@ test("help needs no config or key; paid approval and database validation precede
   assert.doesNotMatch(missingKey.stderr, /fake-test-only|unexpected network/);
   await writeFile(
     dir + "/config/ingestion.json",
-    '{"model":"openai/gpt-4.1","effort":"extreme"}',
+    '{"model":"openai/gpt-4.1","effort":"extreme","repair_model":"qwen/test-repair","repair_effort":"none"}',
   );
   const invalidConfig = runCli(dir, ["--live"], {
     FOUNDER_RADAR_ALLOW_PAID_API: "1",
@@ -143,6 +161,9 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
     '{"model":"https://evil.test/model","effort":"medium"}',
     '{"model":"openai/gpt-4.1","effort":""}',
     '{"model":"openai/gpt-4.1","effort":"extreme"}',
+    '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"bad-model","repair_effort":"none"}',
+    '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"extreme"}',
+    '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"none","extra":true}',
     " ".repeat(16385),
   ]) {
     await writeFile(path, text);
@@ -151,7 +172,10 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
       /^IngestionError: invalid_ingestion_config$/,
     );
   }
-  await writeFile(path, '{"model":"openai/gpt-4.1","effort":"medium"}');
+  await writeFile(
+    path,
+    '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"none"}',
+  );
   await assert.rejects(
     readModelConfig(path, "bad-model"),
     /invalid_ingestion_config/,
@@ -161,19 +185,35 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
     /invalid_ingestion_config/,
   );
   for (const effort of REASONING_EFFORTS) {
-    await writeFile(path, JSON.stringify({ model: "openai/gpt-4.1", effort }));
+    await writeFile(
+      path,
+      JSON.stringify({
+        model: "openai/gpt-4.1",
+        effort,
+        repair_model: "qwen/test-repair",
+        repair_effort: effort,
+      }),
+    );
     assert.equal((await readModelConfig(path)).effort, effort);
+    assert.equal((await readModelConfig(path)).repairEffort, effort);
   }
   for (const args of [
     ["--model", ""],
     ["--effort", ""],
+    ["--repair-model", ""],
+    ["--repair-effort", ""],
     ["--config", ""],
     ["--model"],
     ["--effort"],
+    ["--repair-model"],
+    ["--repair-effort"],
     ["--config"],
     ["--model", "a/b", "--model", "c/d"],
     ["--effort", "low", "--effort", "high"],
+    ["--repair-model", "a/b", "--repair-model", "c/d"],
+    ["--repair-effort", "low", "--repair-effort", "high"],
     ["--effort", "extreme"],
+    ["--repair-effort", "extreme"],
     ["--live", "--live"],
   ])
     assert.throws(() => parseIngestionArgs(args), /invalid_cli_arguments/);
@@ -182,6 +222,14 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
     "google/test-model",
   );
   assert.equal(parseIngestionArgs(["--effort=high"]).effort, "high");
+  assert.equal(
+    parseIngestionArgs(["--repair-model=qwen/test-model"]).repairModel,
+    "qwen/test-model",
+  );
+  assert.equal(
+    parseIngestionArgs(["--repair-effort=minimal"]).repairEffort,
+    "minimal",
+  );
 });
 
 test("key file accepts one trimmed token, rejects unsafe files, and never echoes contents", async (t) => {
