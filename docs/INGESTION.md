@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live discovery, extraction, schema repair, and draft persistence now work.** A fresh bounded Luna run on September 8 succeeded with two discovered sources, two nonfixture drafts, no unlinked sources, and no errors. Its one conditional repair converted both source-complete candidates to the canonical schema. Operator review archived the already-started event and found no blockers on the upcoming draft. The remaining production check is one separately approved repeat of the same bounded window to confirm source reuse without duplicates; publication of the remaining draft is a separate product decision.
+**Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** A fresh bounded Luna run on September 8 succeeded with two discovered sources, two nonfixture drafts, no unlinked sources, and no errors. Its one conditional repair converted both source-complete candidates to the canonical schema. Operator review archived the already-started event and found no blockers on the upcoming draft. A same-window repeat reused both source and event identities without duplicates and preserved the earlier valid evidence when Luna's relevance judgments changed. Publication of the remaining draft is a separate product decision; relevance consistency remains a model-quality improvement.
 
 ## What happens in one run
 
@@ -247,7 +247,7 @@ Common codes:
 
 Requests opt into OpenRouter router metadata so a denied request can be distinguished as a guardrail, data-policy, geographic, model-access, account-access, or unknown failure. Diagnostics retain only that category and bounded attempt/endpoint/stage counts. Provider messages, pipeline details, headers, credentials, prompts, source content, and reasoning traces are never stored or printed. A router attempt of zero means OpenRouter did not reach a model provider; it does not by itself identify which access policy denied the request.
 
-## Live source-verification acceptance gate still pending
+## Live source-verification acceptance gate
 
 The isolated repair checkpoint is complete: one Luna request canonicalized the preserved three-candidate response, retained its two usable events and one rejected source, made no searches or database writes, and reported a cost of $0.00208335. The remaining gate is a fresh end-to-end run:
 
@@ -257,7 +257,10 @@ The isolated repair checkpoint is complete: one Luna request canonicalized the p
 - Both records are nonfixture drafts with source evidence. One began at 7:00 p.m. on September 8 and was persisted about four minutes after it started because the explicitly selected window began at midnight; it should not be published. The September 21 event remained upcoming at review time.
 - The three model requests reported $0.03188156 combined cost, including the $0.00172905 repair. Search count and any separate hosted-search cost remain unknown because OpenRouter omitted the search-usage counter.
 - Cleanup complete: the already-started event was archived with its source evidence intact, the upcoming event's operator preview had no blockers, and both sandbox-interrupted zero-source runs were marked cancelled with `run_cancelled` audit summaries.
-- Still pending: separately approve one repeat of this exact window to confirm that both source identities are reused without duplicate records, and decide whether the warning-bearing upcoming draft should be published.
+- Repeat run `100aaf50-3dd7-4ff0-ba9d-58b0a5440983` rediscovered the same two URLs, created zero sources, updated both existing source rows, and created no duplicate events. Each URL still has exactly one source row linked to its original event.
+- The repeat finished `partial` because Luna changed both candidate relevance verdicts to `false`, producing `irrelevant_event`. The prior event links and successful evidence timestamps were retained, the archived event remained archived, and the upcoming event remained a draft. This validates the failure-preservation boundary while exposing relevance consistency as the next quality issue.
+- The repeat's three model requests reported $0.03162429 combined cost. Search count and any separate hosted-search cost remain unknown because OpenRouter again omitted its search-usage counter.
+- Still pending: decide whether the warning-bearing upcoming draft should be published and improve relevance consistency before relying on unattended recurring ingestion.
 
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
 - Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.
