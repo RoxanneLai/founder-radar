@@ -750,6 +750,69 @@ test("one tool-free repair call handles only a source-complete schema variant", 
     "canonical",
   );
   assert.equal(provider.getDiagnostics()[1].repair_validation, "accepted");
+
+  const second = "https://luma.com/second-event";
+  const partialSource = extractionResponse(
+    JSON.stringify({
+      candidates: [
+        { ...candidate(), unexpected_wrapper_field: "remove me" },
+        {
+          ...candidate(second),
+          unexpected_wrapper_field: "remove me too",
+        },
+      ],
+    }),
+  );
+  delete partialSource.usage.server_tool_use.web_fetch_requests;
+  const invalidSibling = {
+    ...candidate(second),
+    relevant_to_founders: { value: false, quote: report },
+  };
+  const partialRepair = response(
+    JSON.stringify({ candidates: [candidate(), invalidSibling] }),
+    0,
+  );
+  const { provider: partialProvider, requests: partialRequests } =
+    providerWithResponses([partialSource, partialRepair]);
+  const sources = selectSources([url, second], 3);
+  const partial = await partialProvider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.equal(partial.candidates.length, 2);
+  assert.equal(partialRequests.length, 2);
+  assert.equal(
+    partialProvider.getDiagnostics()[0].fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+  assert.equal(
+    partialProvider.getDiagnostics()[1].repair_validation,
+    "accepted_partial",
+  );
+  assert.equal(
+    partialProvider.getDiagnostics()[1].extraction_schema_valid_count,
+    1,
+  );
+  const repo = memoryRepository();
+  const result = await runIngestion(options, {
+    repository: repo,
+    provider: {
+      async research() {
+        return { report, urls: [url, second], metadata: {} };
+      },
+      async extract() {
+        return partial;
+      },
+    },
+    signal,
+  });
+  assert.equal(result.status, "partial");
+  assert.equal(result.events_written, 1);
+  assert.equal(result.sources_unlinked, 1);
+  assert.deepEqual(result.errors, ["invalid_candidate"]);
+  assert.equal(repo.sources.get(second).event_id, null);
 });
 
 test("an invalid reported fetch count fails before spending a repair call", async () => {

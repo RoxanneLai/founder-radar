@@ -189,6 +189,7 @@ export type ProviderDiagnostic = {
     "canonical" | "legacy_flat" | "legacy_nested" | "mixed" | "invalid" | null;
   repair_validation:
     | "accepted"
+    | "accepted_partial"
     | "invalid_json"
     | "invalid_shape"
     | "invalid_format"

@@ -309,11 +309,16 @@ function reportedSourceUrls(response: RouterResponse): string[] {
   return [...selected];
 }
 
-function hasCompleteSourceCoverage(
+type SourceCoverage = {
+  exact: boolean;
+  complete: boolean;
+};
+
+function inspectSourceCoverage(
   candidates: unknown[],
   sources: SourceIdentity[],
   diagnostic: ProviderDiagnostic,
-): boolean {
+): SourceCoverage {
   const expected = new Set(sources.map((source) => source.source_url));
   const seen = new Set<string>();
   let schemaValid = 0;
@@ -342,24 +347,29 @@ function hasCompleteSourceCoverage(
   diagnostic.extraction_source_match_count = seen.size;
   diagnostic.extraction_duplicate_source_count = duplicates;
   diagnostic.extraction_untrusted_source_count = untrusted;
-  return (
+  const exact =
     candidates.length === sources.length &&
-    schemaValid === candidates.length &&
     seen.size === expected.size &&
     duplicates === 0 &&
-    untrusted === 0
-  );
+    untrusted === 0;
+  return { exact, complete: exact && schemaValid === candidates.length };
 }
 
 function extractionCandidates(
   value: unknown,
   diagnostic: ProviderDiagnostic,
   allowEncoded = true,
+  canonicalize = true,
 ): unknown[] | null {
   if (allowEncoded) diagnostic.extraction_shape = "invalid";
   if (typeof value === "string" && allowEncoded) {
     try {
-      const nested = extractionCandidates(JSON.parse(value), diagnostic, false);
+      const nested = extractionCandidates(
+        JSON.parse(value),
+        diagnostic,
+        false,
+        canonicalize,
+      );
       if (nested) diagnostic.extraction_shape = "encoded_candidate_envelope";
       return nested;
     } catch {
@@ -393,7 +403,16 @@ function extractionCandidates(
   if (candidates && candidates.length <= 100)
     diagnostic.extraction_candidate_count = candidates.length;
   if (!candidates) return null;
-  const converted = candidates.map(canonicalCandidate);
+  const converted = candidates.map((candidate) =>
+    canonicalize
+      ? canonicalCandidate(candidate)
+      : {
+          value: candidate,
+          format: candidateSchema.safeParse(candidate).success
+            ? ("canonical" as const)
+            : ("invalid" as const),
+        },
+  );
   const formats = new Set(converted.map((candidate) => candidate.format));
   diagnostic.extraction_candidate_format = formats.has("invalid")
     ? "invalid"
@@ -464,8 +483,8 @@ function candidateSourceUrl(value: unknown): string | null {
     : null;
 }
 
-/** A repair may rearrange existing scalar values, never introduce new facts. */
-function repairPreservesCandidateScalars(
+/** Valid repaired siblings may rearrange existing scalars, never add facts. */
+function validRepairsPreserveCandidateScalars(
   original: unknown[],
   repaired: unknown[],
 ): boolean {
@@ -475,11 +494,14 @@ function repairPreservesCandidateScalars(
     if (!url || originals.has(url)) return false;
     originals.set(url, collectScalars(candidate));
   }
+  let validCandidates = 0;
   for (const candidate of repaired) {
     const parsed = candidateSchema.safeParse(candidate);
+    if (!parsed.success) continue;
+    validCandidates += 1;
     const url = candidateSourceUrl(candidate);
     const allowed = url ? originals.get(url) : null;
-    if (!parsed.success || !allowed) return false;
+    if (!allowed) return false;
     const clone = structuredClone(parsed.data) as Record<string, unknown>;
     delete clone.source_url;
     const scalars = collectScalars(clone);
@@ -493,7 +515,7 @@ function repairPreservesCandidateScalars(
       return false;
     }
   }
-  return true;
+  return validCandidates > 0;
 }
 
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
@@ -737,27 +759,31 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       throw new IngestionError("invalid_repair_json");
     }
     const diagnostic = this.diagnostics.at(-1)!;
-    const candidates = extractionCandidates(parsed, diagnostic);
-    const complete = candidates
-      ? hasCompleteSourceCoverage(candidates, sources, diagnostic)
-      : false;
+    // Repair output is never passed through legacy adapters: every usable
+    // sibling must independently satisfy the current canonical contract.
+    const candidates = extractionCandidates(parsed, diagnostic, true, false);
+    const coverage = candidates
+      ? inspectSourceCoverage(candidates, sources, diagnostic)
+      : null;
     if (!candidates) {
       diagnostic.repair_validation = "invalid_shape";
       throw new IngestionError("invalid_repair_output");
     }
-    if (diagnostic.extraction_candidate_format !== "canonical") {
+    if (!diagnostic.extraction_schema_valid_count) {
       diagnostic.repair_validation = "invalid_format";
       throw new IngestionError("invalid_repair_output");
     }
-    if (!complete) {
+    if (!coverage?.exact) {
       diagnostic.repair_validation = "invalid_coverage";
       throw new IngestionError("invalid_repair_output");
     }
-    if (!repairPreservesCandidateScalars(original, candidates)) {
+    if (!validRepairsPreserveCandidateScalars(original, candidates)) {
       diagnostic.repair_validation = "scalar_preservation_failed";
       throw new IngestionError("invalid_repair_output");
     }
-    diagnostic.repair_validation = "accepted";
+    diagnostic.repair_validation = coverage.complete
+      ? "accepted"
+      : "accepted_partial";
     return {
       candidates,
       metadata: routerMetadata(
@@ -855,9 +881,9 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     }
     const responseDiagnostic = this.diagnostics.at(-1)!;
     let candidates = extractionCandidates(parsed, responseDiagnostic);
-    let completeSourceCoverage = candidates
-      ? hasCompleteSourceCoverage(candidates, sources, responseDiagnostic)
-      : false;
+    let sourceCoverage = candidates
+      ? inspectSourceCoverage(candidates, sources, responseDiagnostic)
+      : null;
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
     if (!candidates || candidates.length !== sources.length)
       throw new IngestionError("invalid_extraction_shape");
@@ -869,13 +895,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       this.verifyExtractionFetch(
         response,
         sources.length,
-        completeSourceCoverage,
+        sourceCoverage?.complete ?? false,
         responseDiagnostic,
       );
     }
     let repairMetadata: Record<string, Json> | null = null;
     if (
-      !completeSourceCoverage &&
+      !sourceCoverage?.complete &&
       hasRepairableSourceCoverage(candidates, sources, responseDiagnostic)
     ) {
       const repaired = await this.repairCandidates(
@@ -886,12 +912,16 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       );
       candidates = repaired.candidates;
       repairMetadata = repaired.metadata;
-      completeSourceCoverage = true;
+      sourceCoverage = inspectSourceCoverage(
+        candidates,
+        sources,
+        this.diagnostics.at(-1)!,
+      );
     }
     const verifiedDiagnostic = this.verifyExtractionFetch(
       response,
       sources.length,
-      completeSourceCoverage,
+      sourceCoverage?.exact ?? false,
       responseDiagnostic,
     );
     const metadata = routerMetadata(
