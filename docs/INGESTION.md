@@ -4,11 +4,11 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** A fresh bounded Luna run on September 8 succeeded with two discovered sources, two nonfixture drafts, no unlinked sources, and no errors. Operator review archived the already-started event and found no blockers on the upcoming draft. A repeat preserved both identities and earlier evidence when Luna's relevance judgments changed. The tightened relevance contract then failed closed during controlled refresh `c17329a9-62b8-4ec0-8e88-2cb8b27de053`: two repaired candidates were valid, one was malformed, and no event was written. Repair handling now isolates malformed siblings while retaining exact trusted-source coverage and unchanged validation; a fresh current-window live check remains pending.
+**Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** The latest run, `103b9926-addc-438e-b444-144ca09a98f7`, reused a search window prepared ten days earlier. It safely wrote one draft and left one source unlinked, but the written event had already occurred by execution time. Review blocked publication and the draft is now archived with its evidence intact. Live mode now rejects a search start more than 15 minutes old before reading credentials, contacting the database, or making a paid request, and candidate validation rejects events that have already started at the actual observation time. A genuinely fresh current-window run remains pending.
 
 ## What happens in one run
 
-1. Validate the search dates and result limit and create a search-run record.
+1. Validate the search dates and result limit. In live mode, reject a search start more than 15 minutes old before reading credentials, contacting the database, or making a paid request; then create a search-run record.
 2. Ask the configured model through OpenRouter's Chat Completions endpoint to research public listings using its `openrouter:web_search` server tool. The model controls its search queries; the tool uses Exa with explicit search/result bounds.
    Verify the reported search count when present. When it is absent/null, require 1–15 provider-supplied citation annotations, each containing a supported event-listing URL. The request's `max_uses`, `max_tool_calls`, and result limits remain the server-side bounds.
 3. Intersect individual event URLs named in the report with returned URL-citation annotations, preserving the report's numbered event order and selecting one primary listing per event section. Duplicate-platform/background citations and plain URLs invented in the report cannot become candidates. Normalize aliases and tracking parameters; cap retained candidates at the requested limit.
@@ -17,7 +17,7 @@ The implementation is a manually triggered ingestion command using **OpenRouter*
 6. Return exactly one bounded verdict object per supplied source. A verified candidate must contain explicit positive founder/investor relevance and a supporting report quote; `false` is not accepted by the provider-facing schema. Extract facts only when the current page confirms the search report. Rejected fetches, conflicts, stale/past pages, cancellations, virtual-only listings, and unconfirmed relevance carry an allowlisted rejection code and no facts.
 7. If the parsed response contains the exact trusted source set but fails only the canonical candidate schema, make at most one tool-free repair request using the configured repair model. It receives only the candidate JSON and expected URLs. The repaired batch must retain exact, unique trusted-source coverage. Each usable sibling must independently satisfy the canonical schema and may only rearrange scalar values already present in its corresponding input candidate. Malformed siblings stay source-only with a safe validation error; zero valid candidates, changed facts, or incomplete/untrusted coverage fail the repair closed.
 8. Verify the reported fetch count when present. When it is absent/null, require exact, unique verdict coverage for every supplied source under the request's required-tool and per-source tool-call bounds.
-9. Validate title, date/time zone, relevance, city, format, and date window. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
+9. Validate title, date/time zone, relevance, city, format, date window, and that the event starts after the actual observation time. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
 10. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
 
 The provider adapter never writes to the database. The repository owns persistence through one transactional RPC, `ingest_event_source`. Concurrent saves of the same provider URL or external ID reuse a source and event. Original `first_seen_at` and discovery-run attribution are retained.
@@ -106,7 +106,7 @@ The command reads model configuration and `OPENROUTER.key` separately from these
 npm run ingest -- --live --limit 3
 ```
 
-The same primary and repair defaults and independent overrides apply in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
+Resolve or copy the exact date window immediately before starting live mode. A live `--from` timestamp may be at most 15 minutes old; a saved plan pasted days later is rejected before credentials, database access, or paid API calls. The same primary and repair defaults and independent overrides apply in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
 
 ## Bounds and failure behavior
 
@@ -114,6 +114,7 @@ The same primary and repair defaults and independent overrides apply in plan and
 | -------------------------- | --------------------------------------------------------- |
 | Retained candidate sources | 1–10; default 10                                          |
 | Search interval            | More than zero, at most 31 days                           |
+| Live start freshness       | No more than 15 minutes before command execution          |
 | OpenRouter API requests    | Two primary requests plus at most one conditional repair  |
 | Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses` |
 | Hosted source fetches      | Exactly one per retained source; at most 10               |
@@ -205,7 +206,7 @@ A later Luna capture showed an exact three-item direct array with the correct un
 
 A subsequent Luna response used the same nested fact objects as the canonical schema but legacy names for organizer, venue, and founder relevance. Its relevance value was explanatory text rather than a Boolean. A second exact-key adapter maps non-null relevance evidence to `true`, preserves its supporting quote, maps the renamed fields, and leaves the absent address unknown. The transformed result must still pass the full canonical schema and source-coverage checks. Diagnostics identify this form as `legacy_nested`; no candidate values are retained in safe diagnostics.
 
-Other parsed variants are eligible for one repair request only when their candidate count and exact unique canonical source URLs already match the supplied sources. The configured repair model receives that candidate JSON and the expected URLs, with no search/fetch tools and no report or page content. Its strict-schema response is accepted only when every non-null scalar already occurred in the corresponding original candidate, apart from the allowlisted legacy `failed_fetch` reason mapping. Invalid JSON, partial/duplicate/untrusted coverage, explicit fetch-count failures, invented facts, tool use, or another noncanonical result fail without a second repair.
+Other parsed variants are eligible for one repair request only when their candidate count and exact unique canonical source URLs already match the supplied sources. The configured repair model receives that candidate JSON and the expected URLs, with no search/fetch tools and no report or page content. Exact unique trusted-source coverage remains mandatory. Each canonical sibling is accepted only when every non-null scalar already occurred in its corresponding original candidate, apart from the allowlisted legacy `failed_fetch` reason mapping; malformed siblings remain source-only with `invalid_candidate`. Invalid JSON, zero valid siblings, partial/duplicate/untrusted coverage, explicit fetch-count failures, invented facts, tool use, or a wholly noncanonical result fail without a second repair.
 
 ### Run statuses
 
@@ -222,6 +223,7 @@ Common codes:
 | Code                                                       | Next action                                                                                            |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `paid_api_not_enabled`                                     | Expected safety gate; approve budget before setting the opt-in                                         |
+| `stale_live_window`                                        | Resolve a new current window immediately before live execution                                         |
 | `missing_ingestion_environment`                            | Supply the required server-side variables                                                              |
 | `invalid_ingestion_config`                                 | Check all four model/effort fields and their explicit OpenRouter model IDs                             |
 | `openrouter_key_file_unavailable`                          | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
@@ -242,6 +244,7 @@ Common codes:
 | `provider_quota_or_rate_limit`                             | Stop; inspect API quota/billing/rate limits before another paid run                                    |
 | `provider_incomplete` / `provider_request_failed`          | Inspect API usage; do not automatically retry                                                          |
 | `incomplete_event` / `candidate_missing`                   | Inspect the private source/research report; leave the source unlinked                                  |
+| `event_already_started`                                    | Leave the source unlinked; do not create or refresh a past-event draft                                 |
 | `run_finish_failed`                                        | Use the local checkpoint; the database run may still say running                                       |
 | `progress_write_failed`                                    | Local recovery-file write failed; inspect the database summary                                         |
 
@@ -265,7 +268,10 @@ The isolated repair checkpoint is complete: one Luna request canonicalized the p
 - The two existing source/event identities, September 8 evidence snapshots, archived/draft publication states, and unpublished status were preserved. The new Luma source remains unlinked. All three source rows record only the failed refresh attempt.
 - The refresh's three model requests reported $0.03492910 combined cost. Search count and any separate hosted-search cost remain unknown because OpenRouter again omitted its search-usage counter.
 - Per-candidate repair isolation is implemented offline. A regression case accepts an exact two-source repair with one valid and one malformed sibling, writes only the valid draft, leaves the malformed source unlinked with `invalid_candidate`, and records `accepted_partial`. Repairs with no valid candidates, invented facts, duplicate/missing/untrusted URLs, or tool use still fail closed. The complete 97-test offline suite passes.
-- Still pending: run one fresh current-window check before deciding whether to publish any draft. Do not rely on unattended recurring ingestion until that check succeeds consistently.
+- Run `103b9926-addc-438e-b444-144ca09a98f7` was executed on September 24 with a September 14–28 window prepared ten days earlier. It discovered two new sources, wrote one event, left one source unlinked with `source_evidence_insufficient`, and reported $0.03148083 in combined model cost. Search count and any separate hosted-search cost remain unknown.
+- The repair was fully `accepted` with two canonical candidates, so this run did not exercise the new `accepted_partial` path. The Eventbrite event began on September 15, review correctly blocked it from the upcoming feed, and it is now archived with evidence intact. The September 28 Meetup page later showed sufficient public date, venue, and founder/investor evidence, making its fact-free rejection a safe false negative rather than a false publication.
+- Live mode now rejects a search start more than 15 minutes old before reading credentials, database access, or paid requests. Normalization also rejects an event at or before the run's actual observation time. These guards are covered offline without weakening plan or replay workflows.
+- Still pending: resolve and run one genuinely fresh current window immediately before execution, then review every resulting draft before deciding whether to publish. Do not rely on unattended recurring ingestion until that check succeeds consistently.
 
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
 - Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.

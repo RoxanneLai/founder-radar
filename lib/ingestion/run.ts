@@ -108,6 +108,7 @@ async function saveExtractedSource(
       source,
       research.report,
       context.options,
+      context.observedAt,
     );
   } catch (error) {
     const code = errorCode(error);

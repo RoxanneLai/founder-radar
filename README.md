@@ -6,7 +6,7 @@ FounderRadar is becoming an event intelligence pipeline for finding and explaini
 
 ## Current milestone: draft review and publication
 
-V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation and a bounded, manually triggered ingestion agent. The agent implementation is tested offline; paid live-data verification is still pending.
+V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation, a bounded manually triggered ingestion agent, live draft collection, and a human review boundary. Live runs remain unpublished until explicit approval.
 
 The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
 
@@ -129,7 +129,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                   |
 | Live checkpoint underway | OpenRouter discovery, source verification, two manually validated real drafts, optional bounded schema repair, and tests |
-| Next                     | Validate repair isolation in one fresh current-window ingestion, then review resulting drafts before publication         |
+| Next                     | Resolve and run one genuinely fresh current window, then review every resulting draft before publication                 |
 | Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states               |
 | Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links            |
 | Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation        |

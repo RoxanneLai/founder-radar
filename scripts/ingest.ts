@@ -12,6 +12,7 @@ import {
 } from "../lib/ingestion/openrouter-provider.ts";
 import { createIngestionRepository } from "../lib/ingestion/repository.ts";
 import { runIngestion } from "../lib/ingestion/run.ts";
+import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
 import type {
   ReasoningEffort,
   RunSummary,
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
     console.log(INGEST_HELP);
     return;
   }
+  if (args.live) validateLiveSearchWindow(args.options);
   const settings = await readModelConfig(
     args.configPath,
     args.model,

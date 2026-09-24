@@ -110,10 +110,24 @@ test("help needs no config or key; paid approval and database validation precede
   const help = runCli(dir, ["--help"]);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /OPENROUTER.key/);
+  assert.match(help.stdout, /15 minutes old/);
   await mkdir(dir + "/config");
   await writeFile(
     dir + "/config/ingestion.json",
     '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"none"}',
+  );
+  const staleWindow = runCli(dir, [
+    "--live",
+    "--from",
+    "2026-01-01T00:00:00Z",
+    "--to",
+    "2026-01-15T00:00:00Z",
+  ]);
+  assert.equal(staleWindow.status, 1);
+  assert.match(staleWindow.stderr, /stale_live_window/);
+  assert.doesNotMatch(
+    staleWindow.stderr,
+    /paid_api_not_enabled|OPENROUTER|unexpected network/,
   );
   const blocked = runCli(dir, ["--live"]);
   assert.equal(blocked.status, 1);

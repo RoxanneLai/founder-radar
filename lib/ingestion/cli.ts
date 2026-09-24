@@ -17,6 +17,7 @@ export const INGEST_HELP = [
   "Effort: none, minimal, low, medium, high, xhigh, or max. No environment overrides.",
   "",
   "Add --live AND set FOUNDER_RADAR_ALLOW_PAID_API=1 to permit paid API calls.",
+  "A live --from timestamp may be at most 15 minutes old; resolve the window immediately before running.",
   "Required live environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",

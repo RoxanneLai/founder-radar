@@ -4,6 +4,7 @@ import { sourceIdentity, selectSources } from "../../lib/ingestion/sources.ts";
 import { normalizeCandidate } from "../../lib/ingestion/normalize.ts";
 import {
   validateSearchOptions,
+  validateLiveSearchWindow,
   defaultSearchOptions,
 } from "../../lib/ingestion/options.ts";
 import { parseIngestionArgs } from "../../lib/ingestion/cli.ts";
@@ -17,8 +18,11 @@ import {
   options,
 } from "./helpers.mjs";
 
-const normalize = (input, window = options) =>
-  normalizeCandidate(input, sourceIdentity(url), report, window);
+const normalize = (
+  input,
+  window = options,
+  observedAt = "2026-09-01T12:00:00Z",
+) => normalizeCandidate(input, sourceIdentity(url), report, window, observedAt);
 
 test("canonicalizes listing URLs without merging meaningful query parameters", () => {
   assert.equal(
@@ -225,6 +229,10 @@ test("rejects non-NYC, virtual, irrelevant, out-of-range and mismatched-source l
     () => normalize({ ...candidate(), source_url: "https://luma.com/other" }),
     /source_mismatch/,
   );
+  assert.throws(
+    () => normalize(candidate(), options, "2026-09-05T22:00:00Z"),
+    /event_already_started/,
+  );
 });
 
 test("search windows and candidate limits are bounded", () => {
@@ -238,6 +246,19 @@ test("search windows and candidate limits are bounded", () => {
   assert.throws(() => validateSearchOptions({ ...options, to: options.from }));
   assert.throws(() =>
     validateSearchOptions({ ...options, to: "2026-12-01T00:00:00Z" }),
+  );
+  assert.deepEqual(
+    validateLiveSearchWindow(options, new Date("2026-09-01T00:15:00.000Z")),
+    options,
+  );
+  assert.throws(
+    () =>
+      validateLiveSearchWindow(options, new Date("2026-09-01T00:15:00.001Z")),
+    /stale_live_window/,
+  );
+  assert.throws(
+    () => validateLiveSearchWindow(options, new Date("2026-09-15T00:00:00Z")),
+    /stale_live_window/,
   );
 });
 

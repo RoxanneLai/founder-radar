@@ -83,6 +83,7 @@ export function normalizeCandidate(
   source: SourceIdentity,
   report: string,
   options: SearchOptions,
+  observedAt: string,
 ): EventDraft {
   const parsed = candidateSchema.safeParse(input);
   if (!parsed.success) throw new IngestionError("invalid_candidate");
@@ -147,6 +148,8 @@ export function normalizeCandidate(
   const start = Date.parse(startsAt);
   if (start < Date.parse(options.from) || start >= Date.parse(options.to))
     throw new IngestionError("outside_search_window");
+  if (start <= Date.parse(observedAt))
+    throw new IngestionError("event_already_started");
   const endText = text(c.ends_at, report);
   const endsAt = instant(endText);
   if (

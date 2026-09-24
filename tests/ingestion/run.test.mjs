@@ -15,7 +15,12 @@ function dependencies(
   repository = memoryRepository(),
   provider = fakeProvider(),
 ) {
-  return { repository, provider, signal: new AbortController().signal };
+  return {
+    repository,
+    provider,
+    signal: new AbortController().signal,
+    now: () => new Date("2026-09-01T12:00:00Z"),
+  };
 }
 
 test("saves three draft candidates with provenance, then reruns without duplicate sources/events", async () => {

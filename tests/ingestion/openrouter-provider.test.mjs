@@ -18,6 +18,7 @@ import {
 
 const signal = new AbortController().signal;
 const key = "offline-test-not-a-key";
+const testNow = () => new Date("2026-09-01T12:00:00Z");
 
 function response(text, searches = 0, fetches = null) {
   return {
@@ -807,6 +808,7 @@ test("one tool-free repair call handles only a source-complete schema variant", 
       },
     },
     signal,
+    now: testNow,
   });
   assert.equal(result.status, "partial");
   assert.equal(result.events_written, 1);
@@ -933,6 +935,7 @@ test("OpenRouter results pass through draft validation and repeat-run deduplicat
       provider,
       repository,
       signal,
+      now: testNow,
     });
     assert.equal(summary.status, "succeeded");
     assert.equal(summary.events_written, 1);
@@ -962,6 +965,7 @@ test("a fetched-page conflict returns a fact-free rejection without creating an 
     provider,
     repository,
     signal,
+    now: testNow,
   });
   assert.equal(summary.status, "partial");
   assert.equal(summary.events_written, 0);
@@ -978,7 +982,12 @@ test("only annotated URLs can become drafts; an empty search skips extraction", 
   search.choices[0].message.annotations = [];
   const { provider, requests } = providerWithResponses([search]);
   const repository = memoryRepository();
-  const summary = await runIngestion(options, { provider, repository, signal });
+  const summary = await runIngestion(options, {
+    provider,
+    repository,
+    signal,
+    now: testNow,
+  });
   assert.equal(summary.status, "succeeded");
   assert.equal(summary.events_written, 0);
   assert.equal(requests.length, 1);
@@ -1289,6 +1298,7 @@ test("bounded provider citations safely bridge a missing search counter", async 
       provider,
       repository,
       signal,
+      now: testNow,
       onProgress: async (snapshot) => progress.push(snapshot),
     });
     assert.equal(summary.status, "succeeded");
@@ -1406,6 +1416,7 @@ test("zero and invalid search counters stay distinct without authorizing ingesti
       provider,
       repository,
       signal,
+      now: testNow,
     });
     assert.deepEqual(summary.errors, [expected]);
     assert.equal(summary.provider_diagnostics[0].search_usage, state);
@@ -1458,6 +1469,7 @@ test("failed extraction and finalization preserve both requests in the recovery 
       provider,
       repository,
       signal,
+      now: testNow,
       onProgress: async (snapshot) => progress.push(snapshot),
     });
     if (failFinish) await assert.rejects(running, /run_finish_failed/);
@@ -1540,6 +1552,7 @@ test("HTTP, JSON and transport failures keep costs unknown and never store raw e
       provider,
       repository,
       signal,
+      now: testNow,
     });
     assert.deepEqual(summary.errors, [expected]);
     const [diagnostic] = summary.provider_diagnostics;
@@ -1562,6 +1575,7 @@ test("a diagnostics or progress hook failure cannot leave the run open or erase 
       provider,
       repository,
       signal,
+      now: testNow,
       onProgress: async () => {
         if (hook === "progress") throw new Error(key);
       },
