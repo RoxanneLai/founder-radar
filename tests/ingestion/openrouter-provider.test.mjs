@@ -139,6 +139,52 @@ function legacyFlatRejection(sourceUrl = url) {
   return value;
 }
 
+function alternateFlatCandidate(sourceUrl = url) {
+  const value = legacyFlatCandidate(sourceUrl);
+  return {
+    source_url: value.source_url,
+    source_verification: value.source_verification,
+    title: value.title,
+    title_quote: value.title_quote,
+    starts_at: value.starts_at,
+    starts_at_quote: value.starts_at_quote,
+    ends_at: value.ends_at,
+    ends_at_quote: value.ends_at_quote,
+    time_zone: value.time_zone,
+    time_zone_quote: value.time_zone_quote,
+    venue: value.venue_name,
+    venue_quote: value.venue_name_quote,
+    city: value.city,
+    city_quote: value.city_quote,
+    region: value.region,
+    region_quote: value.region_quote,
+    country_code: value.country_code,
+    country_code_quote: value.country_code_quote,
+    event_format: value.event_format,
+    event_format_quote: value.event_format_quote,
+    relevant_to_founders: value.founder_investor_relevance,
+    relevance_quote: value.founder_investor_relevance_quote,
+    organizer: value.organizer,
+    organizer_quote: value.organizer_quote,
+    price_amount_cents: value.price_amount_cents,
+    price_amount_cents_quote: value.price_amount_cents_quote,
+    currency_code: value.currency_code,
+    currency_code_quote: value.currency_code_quote,
+    registration_status: value.registration_status,
+    registration_status_quote: value.registration_status_quote,
+  };
+}
+
+function alternateFlatRejection(sourceUrl = url) {
+  const value = alternateFlatCandidate(sourceUrl);
+  value.source_verification = { status: "rejected", reason: "cancelled" };
+  for (const key of Object.keys(value)) {
+    if (key !== "source_url" && key !== "source_verification")
+      value[key] = null;
+  }
+  return value;
+}
+
 function legacyNestedCandidate(sourceUrl = url) {
   const value = candidate(sourceUrl);
   return {
@@ -545,50 +591,64 @@ test("strict local validation accepts only narrow candidate-envelope aliases", a
 });
 
 test("strict legacy flat candidates normalize into the canonical schema", async () => {
-  const second = "https://luma.com/second-event";
-  const sources = selectSources([url, second], 3);
-  const value = extractionResponse(
-    JSON.stringify([legacyFlatCandidate(), legacyFlatRejection(second)]),
-  );
-  delete value.usage.server_tool_use.web_fetch_requests;
-  const { provider } = providerWithResponses([value]);
-  const extracted = await provider.extract(
-    { report, urls: [url, second], metadata: {} },
-    sources,
-    options,
-    signal,
-  );
-  assert.deepEqual(extracted.candidates[0].title, {
-    value: "Founder Test",
-    quote: report,
-  });
-  assert.deepEqual(extracted.candidates[0].organizer_name, {
-    value: "Test Org",
-    quote: report,
-  });
-  assert.deepEqual(extracted.candidates[0].address_line, {
-    value: null,
-    quote: null,
-  });
-  assert.deepEqual(extracted.candidates[1].source_verification, {
-    status: "rejected",
-    reason: "source_fetch_failed",
-  });
-  const [diagnostic] = provider.getDiagnostics();
-  assert.equal(diagnostic.extraction_candidate_format, "legacy_flat");
-  assert.equal(diagnostic.extraction_schema_valid_count, 2);
-  assert.equal(diagnostic.extraction_source_match_count, 2);
-  assert.equal(
-    diagnostic.fetch_verification,
-    "required_tool_and_source_coverage",
-  );
+  for (const [valid, rejected, expectedReason] of [
+    [legacyFlatCandidate, legacyFlatRejection, "source_fetch_failed"],
+    [alternateFlatCandidate, alternateFlatRejection, "source_page_cancelled"],
+  ]) {
+    const second = "https://luma.com/second-event";
+    const sources = selectSources([url, second], 3);
+    const value = extractionResponse(
+      JSON.stringify([valid(), rejected(second)]),
+    );
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider, requests } = providerWithResponses([value]);
+    const extracted = await provider.extract(
+      { report, urls: [url, second], metadata: {} },
+      sources,
+      options,
+      signal,
+    );
+    assert.equal(requests.length, 1);
+    assert.deepEqual(extracted.candidates[0].title, {
+      value: "Founder Test",
+      quote: report,
+    });
+    assert.deepEqual(extracted.candidates[0].organizer_name, {
+      value: "Test Org",
+      quote: report,
+    });
+    assert.deepEqual(extracted.candidates[0].address_line, {
+      value: null,
+      quote: null,
+    });
+    assert.deepEqual(extracted.candidates[1].source_verification, {
+      status: "rejected",
+      reason: expectedReason,
+    });
+    const [diagnostic] = provider.getDiagnostics();
+    assert.equal(diagnostic.extraction_candidate_format, "legacy_flat");
+    assert.equal(diagnostic.extraction_schema_valid_count, 2);
+    assert.equal(diagnostic.extraction_source_match_count, 2);
+    assert.equal(
+      diagnostic.fetch_verification,
+      "required_tool_and_source_coverage",
+    );
+  }
 });
 
 test("legacy flat compatibility rejects extra keys and inconsistent verdicts", async () => {
   const extra = { ...legacyFlatCandidate(), extra: "not allowed" };
   const inconsistent = legacyFlatRejection();
   inconsistent.title = "Invented";
-  for (const candidateValue of [extra, inconsistent]) {
+  const alternateExtra = { ...alternateFlatCandidate(), extra: "not allowed" };
+  const alternateInconsistent = alternateFlatRejection();
+  alternateInconsistent.title = "Invented";
+  for (const candidateValue of [
+    extra,
+    inconsistent,
+    alternateExtra,
+    alternateInconsistent,
+  ]) {
     const value = extractionResponse(JSON.stringify([candidateValue]));
     delete value.usage.server_tool_use.web_fetch_requests;
     const invalidRepair = response(
@@ -757,6 +817,65 @@ test("one tool-free repair call handles only a source-complete schema variant", 
   assert.deepEqual(
     provider.getDiagnostics()[1].repair_scalar_mismatch_paths,
     [],
+  );
+
+  const cancelledSource = extractionResponse(
+    JSON.stringify({
+      candidates: [
+        {
+          ...alternateFlatRejection(),
+          unexpected_wrapper_field: "remove me",
+        },
+      ],
+    }),
+  );
+  delete cancelledSource.usage.server_tool_use.web_fetch_requests;
+  const cancelledRepair = response(
+    JSON.stringify({
+      candidates: [
+        {
+          ...candidate(),
+          source_verification: {
+            status: "rejected",
+            reason: "source_page_cancelled",
+          },
+          relevant_to_founders: { value: null, quote: null },
+          title: { value: null, quote: null },
+          organizer_name: { value: null, quote: null },
+          starts_at: { value: null, quote: null },
+          ends_at: { value: null, quote: null },
+          time_zone: { value: null, quote: null },
+          venue_name: { value: null, quote: null },
+          address_line: { value: null, quote: null },
+          city: { value: null, quote: null },
+          region: { value: null, quote: null },
+          country_code: { value: null, quote: null },
+          event_format: { value: null, quote: null },
+          price_amount_cents: { value: null, quote: null },
+          currency_code: { value: null, quote: null },
+          registration_status: { value: null, quote: null },
+        },
+      ],
+    }),
+  );
+  const { provider: cancelledProvider } = providerWithResponses([
+    cancelledSource,
+    cancelledRepair,
+  ]);
+  const cancelled = await cancelledProvider.extract(
+    { report, urls: [url], metadata: {} },
+    selectSources([url], 3),
+    options,
+    signal,
+  );
+  assert.equal(cancelled.candidates.length, 1);
+  assert.equal(
+    cancelledProvider.getDiagnostics()[1].repair_validation,
+    "accepted",
+  );
+  assert.equal(
+    cancelledProvider.getDiagnostics()[1].repair_scalar_mismatch_count,
+    0,
   );
 
   const second = "https://luma.com/second-event";

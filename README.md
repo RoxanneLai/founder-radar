@@ -22,6 +22,8 @@ npm run ingest -- --limit 3
 
 After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a source-complete noncanonical response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
 
+Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
+
 ## Run the web application
 
 Use Node.js 24 LTS and npm.
@@ -129,7 +131,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                                   |
 | Live checkpoint underway | OpenRouter discovery, source verification, two manually validated real drafts, optional bounded schema repair, and tests |
-| Next                     | Diagnose a safely rejected repair, then repeat one fresh-window run and review drafts before publication                 |
+| Next                     | Review two offline-validated drafts, then repeat one fresh-window run before publication                                 |
 | Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states               |
 | Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links            |
 | Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation        |

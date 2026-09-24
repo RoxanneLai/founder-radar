@@ -63,6 +63,7 @@ const flatVerificationReason = z
     "source_page_virtual_only",
     "source_evidence_insufficient",
     "failed_fetch",
+    "cancelled",
   ])
   .nullable();
 const flatCandidateSchema = z
@@ -136,6 +137,74 @@ const flatCandidateSchema = z
       });
   });
 
+const alternateFlatCandidateSchema = z
+  .object({
+    source_url: z.string(),
+    source_verification: z
+      .object({
+        status: z.enum(["verified", "rejected"]),
+        reason: flatVerificationReason,
+      })
+      .strict(),
+    title: flatText,
+    title_quote: flatQuote,
+    starts_at: flatText,
+    starts_at_quote: flatQuote,
+    ends_at: flatText,
+    ends_at_quote: flatQuote,
+    time_zone: flatText,
+    time_zone_quote: flatQuote,
+    venue: flatText,
+    venue_quote: flatQuote,
+    city: flatText,
+    city_quote: flatQuote,
+    region: flatText,
+    region_quote: flatQuote,
+    country_code: flatText,
+    country_code_quote: flatQuote,
+    event_format: flatText,
+    event_format_quote: flatQuote,
+    relevant_to_founders: z.boolean().nullable(),
+    relevance_quote: flatQuote,
+    organizer: flatText,
+    organizer_quote: flatQuote,
+    price_amount_cents: z.number().int().min(0).max(2147483647).nullable(),
+    price_amount_cents_quote: flatQuote,
+    currency_code: flatText,
+    currency_code_quote: flatQuote,
+    registration_status: flatText,
+    registration_status_quote: flatQuote,
+  })
+  .strict()
+  .superRefine((candidate, context) => {
+    const facts = [
+      [candidate.title, candidate.title_quote],
+      [candidate.starts_at, candidate.starts_at_quote],
+      [candidate.ends_at, candidate.ends_at_quote],
+      [candidate.time_zone, candidate.time_zone_quote],
+      [candidate.venue, candidate.venue_quote],
+      [candidate.city, candidate.city_quote],
+      [candidate.region, candidate.region_quote],
+      [candidate.country_code, candidate.country_code_quote],
+      [candidate.event_format, candidate.event_format_quote],
+      [candidate.relevant_to_founders, candidate.relevance_quote],
+      [candidate.organizer, candidate.organizer_quote],
+      [candidate.price_amount_cents, candidate.price_amount_cents_quote],
+      [candidate.currency_code, candidate.currency_code_quote],
+      [candidate.registration_status, candidate.registration_status_quote],
+    ];
+    const rejected = candidate.source_verification.status === "rejected";
+    const invalid = rejected
+      ? candidate.source_verification.reason === null ||
+        facts.some(([value, quote]) => value !== null || quote !== null)
+      : candidate.source_verification.reason !== null;
+    if (invalid)
+      context.addIssue({
+        code: "custom",
+        message: "inconsistent alternate flat source verification verdict",
+      });
+  });
+
 const legacyNestedTextFact = z
   .object({ value: z.string().nullable(), quote: z.string().nullable() })
   .strict();
@@ -183,13 +252,18 @@ function canonicalCandidate(value: unknown): {
     return { value, format: "canonical" };
   const flat = flatCandidateSchema.safeParse(value);
   if (flat.success) return canonicalFlatCandidate(flat.data, value);
+  const alternateFlat = alternateFlatCandidateSchema.safeParse(value);
+  if (alternateFlat.success)
+    return canonicalAlternateFlatCandidate(alternateFlat.data, value);
   const nested = legacyNestedCandidateSchema.safeParse(value);
   if (nested.success) return canonicalNestedCandidate(nested.data, value);
   return { value, format: "invalid" };
 }
 
 function canonicalReason(reason: z.infer<typeof flatVerificationReason>) {
-  return reason === "failed_fetch" ? "source_fetch_failed" : reason;
+  if (reason === "failed_fetch") return "source_fetch_failed";
+  if (reason === "cancelled") return "source_page_cancelled";
+  return reason;
 }
 
 function canonicalFlatCandidate(
@@ -234,6 +308,50 @@ function canonicalFlatCandidate(
   return candidateSchema.safeParse(canonical).success
     ? { value: canonical, format: "legacy_flat" }
     : { value: original, format: "invalid" };
+}
+
+function canonicalAlternateFlatCandidate(
+  candidate: z.infer<typeof alternateFlatCandidateSchema>,
+  original: unknown,
+): {
+  value: unknown;
+  format: "legacy_flat" | "invalid";
+} {
+  return canonicalFlatCandidate(
+    {
+      source_url: candidate.source_url,
+      source_verification: candidate.source_verification,
+      title: candidate.title,
+      title_quote: candidate.title_quote,
+      starts_at: candidate.starts_at,
+      starts_at_quote: candidate.starts_at_quote,
+      ends_at: candidate.ends_at,
+      ends_at_quote: candidate.ends_at_quote,
+      time_zone: candidate.time_zone,
+      time_zone_quote: candidate.time_zone_quote,
+      venue_name: candidate.venue,
+      venue_name_quote: candidate.venue_quote,
+      city: candidate.city,
+      city_quote: candidate.city_quote,
+      region: candidate.region,
+      region_quote: candidate.region_quote,
+      country_code: candidate.country_code,
+      country_code_quote: candidate.country_code_quote,
+      event_format: candidate.event_format,
+      event_format_quote: candidate.event_format_quote,
+      founder_investor_relevance: candidate.relevant_to_founders,
+      founder_investor_relevance_quote: candidate.relevance_quote,
+      organizer: candidate.organizer,
+      organizer_quote: candidate.organizer_quote,
+      price_amount_cents: candidate.price_amount_cents,
+      price_amount_cents_quote: candidate.price_amount_cents_quote,
+      currency_code: candidate.currency_code,
+      currency_code_quote: candidate.currency_code_quote,
+      registration_status: candidate.registration_status,
+      registration_status_quote: candidate.registration_status_quote,
+    },
+    original,
+  );
 }
 
 function canonicalNestedCandidate(
@@ -549,6 +667,11 @@ function validRepairsPreserveCandidateScalars(
       if (
         scalar === scalarKey("source_fetch_failed") &&
         allowed.has(scalarKey("failed_fetch"))
+      )
+        continue;
+      if (
+        scalar === scalarKey("source_page_cancelled") &&
+        allowed.has(scalarKey("cancelled"))
       )
         continue;
       mismatchCount += 1;
