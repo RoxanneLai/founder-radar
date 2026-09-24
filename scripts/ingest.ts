@@ -12,6 +12,7 @@ import {
 } from "../lib/ingestion/openrouter-provider.ts";
 import { createIngestionRepository } from "../lib/ingestion/repository.ts";
 import { runIngestion } from "../lib/ingestion/run.ts";
+import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
 import type {
   ReasoningEffort,
   RunSummary,
@@ -31,6 +32,8 @@ function printPlan(
   options: SearchOptions,
   model: string,
   effort: ReasoningEffort,
+  repairModel: string,
+  repairEffort: ReasoningEffort,
 ): void {
   console.log(
     JSON.stringify(
@@ -39,6 +42,12 @@ function printPlan(
         provider: "openrouter-web-search",
         model,
         effort,
+        repair: {
+          model: repairModel,
+          effort: repairEffort,
+          maximum_calls: 1,
+          tools: false,
+        },
         location: "New York City",
         options,
         limits: API_LIMITS,
@@ -56,6 +65,8 @@ async function executeLive(
   options: SearchOptions,
   model: string,
   effort: ReasoningEffort,
+  repairModel: string,
+  repairEffort: ReasoningEffort,
 ): Promise<void> {
   const config = readIngestionConfig(process.env);
   const apiKey = await readOpenRouterKey();
@@ -66,12 +77,20 @@ async function executeLive(
   const deadline = setTimeout(cancel, 300000);
   try {
     const summary = await runIngestion(options, {
-      provider: createOpenRouterProvider(apiKey, model, effort),
+      provider: createOpenRouterProvider(
+        apiKey,
+        model,
+        effort,
+        repairModel,
+        repairEffort,
+      ),
       repository: createIngestionRepository(
         config.supabaseUrl,
         config.serviceRoleKey,
         model,
         effort,
+        repairModel,
+        repairEffort,
       ),
       signal: controller.signal,
       onProgress: saveProgress,
@@ -91,13 +110,30 @@ async function main(): Promise<void> {
     console.log(INGEST_HELP);
     return;
   }
+  if (args.live) validateLiveSearchWindow(args.options);
   const settings = await readModelConfig(
     args.configPath,
     args.model,
     args.effort,
+    args.repairModel,
+    args.repairEffort,
   );
-  if (!args.live) printPlan(args.options, settings.model, settings.effort);
-  else await executeLive(args.options, settings.model, settings.effort);
+  if (!args.live)
+    printPlan(
+      args.options,
+      settings.model,
+      settings.effort,
+      settings.repairModel,
+      settings.repairEffort,
+    );
+  else
+    await executeLive(
+      args.options,
+      settings.model,
+      settings.effort,
+      settings.repairModel,
+      settings.repairEffort,
+    );
 }
 
 main().catch((error: unknown) => {

@@ -4,20 +4,21 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
 
-**Live discovery and extraction now work, but production acceptance is still pending.** A bounded Luna replay wrote three real drafts for a provider-reported $0.00263535 with no ingestion errors. Manual checks found that two drafts matched their current listings while one recurring Meetup result used a stale September 9 date; the source page said September 2 and the event had passed. The first source-fetch replay completed for a reported $0.00672044 but omitted `web_fetch_requests`, so it safely wrote no events. Two compatibility replays then returned nonconforming candidate envelopes and safely wrote no events for reported costs of $0.00707632 and $0.00630341. The prompt contradiction is removed, the provider schema still requires exactly one verdict per supplied source, and narrow local envelope compatibility preserves all candidate and source validation. One live replay is still needed.
+**Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** The latest run, `103b9926-addc-438e-b444-144ca09a98f7`, reused a search window prepared ten days earlier. It safely wrote one draft and left one source unlinked, but the written event had already occurred by execution time. Review blocked publication and the draft is now archived with its evidence intact. Live mode now rejects a search start more than 15 minutes old before reading credentials, contacting the database, or making a paid request, and candidate validation rejects events that have already started at the actual observation time. A genuinely fresh current-window run remains pending.
 
 ## What happens in one run
 
-1. Validate the search dates and result limit and create a search-run record.
+1. Validate the search dates and result limit. In live mode, reject a search start more than 15 minutes old before reading credentials, contacting the database, or making a paid request; then create a search-run record.
 2. Ask the configured model through OpenRouter's Chat Completions endpoint to research public listings using its `openrouter:web_search` server tool. The model controls its search queries; the tool uses Exa with explicit search/result bounds.
    Verify the reported search count when present. When it is absent/null, require 1–15 provider-supplied citation annotations, each containing a supported event-listing URL. The request's `max_uses`, `max_tool_calls`, and result limits remain the server-side bounds.
 3. Intersect individual event URLs named in the report with returned URL-citation annotations, preserving the report's numbered event order and selecting one primary listing per event section. Duplicate-platform/background citations and plain URLs invented in the report cannot become candidates. Normalize aliases and tracking parameters; cap retained candidates at the requested limit.
 4. Save the research report and consulted URLs privately in the search run. Persist candidate sources before extraction.
 5. Make one structured-output request with OpenRouter's `openrouter:web_fetch` server tool. Request every selected listing exactly once through the free direct-fetch engine, restricted to the listing allowlist and bounded content size.
-6. Return exactly one bounded verdict object per supplied source. Extract facts only when the current page confirms the search report; rejected fetches, conflicts, stale/past pages, cancellations, and virtual-only listings carry an allowlisted rejection code and no facts.
-7. Verify the reported fetch count when present. When it is absent/null, require exact, unique verdict coverage for every supplied source under the request's required-tool and per-source tool-call bounds.
-8. Validate title, date/time zone, relevance, city, format, and date window. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
-9. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
+6. Return exactly one bounded verdict object per supplied source. A verified candidate must contain explicit positive founder/investor relevance and a supporting report quote; `false` is not accepted by the provider-facing schema. Extract facts only when the current page confirms the search report. Rejected fetches, conflicts, stale/past pages, cancellations, virtual-only listings, and unconfirmed relevance carry an allowlisted rejection code and no facts.
+7. If the parsed response contains the exact trusted source set but fails only the canonical candidate schema, make at most one tool-free repair request using the configured repair model. It receives only the candidate JSON and expected URLs. The repaired batch must retain exact, unique trusted-source coverage. Each usable sibling must independently satisfy the canonical schema and may only rearrange scalar values already present in its corresponding input candidate. Malformed siblings stay source-only with a safe validation error; zero valid candidates, changed facts, or incomplete/untrusted coverage fail the repair closed.
+8. Verify the reported fetch count when present. When it is absent/null, require exact, unique verdict coverage for every supplied source under the request's required-tool and per-source tool-call bounds.
+9. Validate title, date/time zone, relevance, city, format, date window, and that the event starts after the actual observation time. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
+10. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
 
 The provider adapter never writes to the database. The repository owns persistence through one transactional RPC, `ingest_event_source`. Concurrent saves of the same provider URL or external ID reuse a source and event. Original `first_seen_at` and discovery-run attribution are retained.
 
@@ -38,7 +39,7 @@ npm ci
 npm run ingest -- --limit 3
 ```
 
-Without `--live`, the command reads the non-secret model configuration and prints the selected model and reasoning effort, proposed search, and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
+Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, proposed search, and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
 
 ## Select the backend model and effort
 
@@ -47,20 +48,25 @@ The checked-in default is in `config/ingestion.json`:
 ```json
 {
   "model": "openai/gpt-5.6-luna",
-  "effort": "medium"
+  "effort": "medium",
+  "repair_model": "openai/gpt-5.6-luna",
+  "repair_effort": "medium"
 }
 ```
 
 Luna at medium effort is the current working default based on its expected price/performance, not a claim that it is optimal or end-to-end verified. Set `model` to an explicit OpenRouter `vendor/model-id` whose endpoint supports reasoning, tool calling, and JSON-schema structured outputs. `effort` must be one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Model-specific support differs. OpenRouter may map an unsupported gateway effort to the nearest supported level, so comparisons must verify the exact model/effort pair in the current model catalog first. Requests require parameter support and disable provider fallbacks; an incompatible model fails rather than silently switching models or dropping required parameters.
+
+The repair default also uses Luna at medium effort for one narrow JSON transformation. Qwen 3.5 27B failed closed at both `none` and `low` effort by returning noncanonical aliases unchanged; the low-effort attempt also cost more than the earlier Luna extraction. Muse Spark 1.3 Contributor advertised the required parameters and was visible to the active key, but OpenRouter denied all three isolated repair attempts before contacting its sole endpoint. The final metadata-enabled attempt reported one available endpoint, zero selected endpoints, and router attempt zero, classified safely as model access. Neither experimental model is therefore a working default. The Luna repair-only check completed in 9.822 seconds for a provider-reported $0.00208335. It transformed all three source-complete candidates into the canonical schema, retained two usable events and one fact-free `source_fetch_failed` verdict, and passed the local source-coverage and scalar-preservation gates. The repair request has no tools, does not receive the research report or fetched page content, and is made only after the primary extraction returned the exact expected source set. Local scalar-preservation checks prevent the repair model from adding a title, date, venue, price, quote, verdict, or other fact that was absent from that candidate. A repair failure is recorded; it is never retried and never weakens the canonical event validation.
 
 Override either setting for one run with `--model` and `--effort`, or select another non-secret JSON configuration with `--config`. When testing another model, normally specify both overrides:
 
 ```bash
 npm run ingest -- --model openai/gpt-oss-20b --effort low --limit 3
 npm run ingest -- --config config/ingestion.json --model deepseek/deepseek-v4-flash-0731 --effort high --limit 3
+npm run ingest -- --repair-model openai/gpt-5.6-luna --repair-effort medium --limit 3
 ```
 
-Precedence is independently **CLI override over the selected configuration** for model and effort. Both research and extraction use the effective pair and send `reasoning: { effort, exclude: true }`. The model may reason internally, but no reasoning trace is requested or retained. Reasoning tokens count as billable output tokens; an allowlisted provider-reported reasoning-token count is retained when valid and otherwise remains `null`. `OPENAI_MODEL`, effort environment variables, and other model environment variables are not used. The configuration must exist and contain exactly valid `model` and `effort` fields, even when overriding either value. Missing/malformed files and duplicate CLI flags stop before database, key, or API access. Auto-router model IDs and the deprecated `:online` suffix are rejected, so search stays in the explicitly bounded server tool.
+Precedence is independently **CLI override over the selected configuration** for all four settings. Research and extraction use the effective primary pair; repair uses the effective repair pair. Every request sends `reasoning: { effort, exclude: true }`. The model may reason internally, but no reasoning trace is requested or retained. Reasoning tokens count as billable output tokens; an allowlisted provider-reported reasoning-token count is retained when valid and otherwise remains `null`. `OPENAI_MODEL`, effort environment variables, and other model environment variables are not used. The configuration must exist and contain exactly valid `model`, `effort`, `repair_model`, and `repair_effort` fields, even when overriding a value. Missing/malformed files and duplicate CLI flags stop before database, key, or API access. Auto-router model IDs and the deprecated `:online` suffix are rejected, so search stays in the explicitly bounded server tool.
 
 Configuration paths are relative to the working directory (absolute paths also work). The credential path is always `./OPENROUTER.key`, not relative to a custom config file. Do not put keys, a custom API URL, or a paid opt-in into the JSON file.
 
@@ -80,7 +86,7 @@ Replace these example dates when they are no longer current. The start is inclus
 
 ## Prepare live mode
 
-1. Review the plan's model and effort and agree on a small **separate OpenRouter testing budget**, including hosted search, reasoning output, and other model usage. Supplying a key does not itself authorize a live run.
+1. Review the plan's primary and repair model/effort pairs and agree on a small **separate OpenRouter testing budget**, including hosted search, reasoning output, optional repair, and other model usage. Supplying a key does not itself authorize a live run.
 2. Start Docker Desktop and the local stack with `npm run db:start`.
 3. Apply pending local migrations using `npm run db:migrate`. This adds the ingestion RPC and attempt-diagnostic columns without resetting data. Do not use `db:reset` on a database containing data you want to keep.
    The local configuration now enables authentication with sign-ups disabled. After upgrading from the old auth-disabled setup, use `npm run db:stop` then `npm run db:start` to activate it without deleting data. Obtain the local service-role key from `npm run db:status` in your own Terminal; keep the output private. The dashboard uses a different, anonymous/public key.
@@ -100,7 +106,7 @@ The command reads model configuration and `OPENROUTER.key` separately from these
 npm run ingest -- --live --limit 3
 ```
 
-The same model/effort defaults and independent overrides apply in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
+Resolve or copy the exact date window immediately before starting live mode. A live `--from` timestamp may be at most 15 minutes old; a saved plan pasted days later is rejected before credentials, database access, or paid API calls. The same primary and repair defaults and independent overrides apply in plan and live modes. No live run is launched by the test commands or by viewing the dashboard.
 
 ## Bounds and failure behavior
 
@@ -108,7 +114,8 @@ The same model/effort defaults and independent overrides apply in plan and live 
 | -------------------------- | --------------------------------------------------------- |
 | Retained candidate sources | 1–10; default 10                                          |
 | Search interval            | More than zero, at most 31 days                           |
-| OpenRouter API requests    | At most 2 per provider instance/run                       |
+| Live start freshness       | No more than 15 minutes before command execution          |
+| OpenRouter API requests    | Two primary requests plus at most one conditional repair  |
 | Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses` |
 | Hosted source fetches      | Exactly one per retained source; at most 10               |
 | Fetched-page content       | At most 6,000 approximate tokens per fetch                |
@@ -116,6 +123,8 @@ The same model/effort defaults and independent overrides apply in plan and live 
 | Search-result content      | At most 2,000 characters per result                       |
 | Research output tokens     | At most 6,000                                             |
 | Extraction output tokens   | At most 12,000                                            |
+| Repair input text          | At most 60,000 characters                                 |
+| Repair output tokens       | At most 6,000                                             |
 | Research text accepted     | At most 40,000 characters                                 |
 | API response body          | At most 1 MiB before JSON parsing                         |
 | Provider request timeout   | 120 seconds                                               |
@@ -129,7 +138,7 @@ The application's requests go only to the fixed `https://openrouter.ai/api/v1/ch
 
 Failed or discovery-only observations preserve earlier successful content, retrieval time, and event links. New valid observations update draft facts. Published, archived, and fixture events are not rewritten by the agent. An older observation cannot overwrite a newer one. Conflicting URL/external-ID identities are rejected for review, not automatically merged.
 
-`last_attempt_at` and `last_attempt_error` are distinct from the last successful evidence snapshot. New runs are labeled `openrouter-web-search`, with the selected model and requested effort saved in `search_parameters` before paid requests. Per-run requested model and effort, returned model, response ID, input/output/reasoning/total token usage, provider-reported cost when present, report, consulted URLs, and summary live in private `search_runs.metadata`. Missing or malformed reasoning-token usage remains `null`; zero is retained only when explicitly reported. Provider usage and cost are unverified diagnostics. The source stores the latest successful candidate snapshot; it is not an append-only observation history.
+`last_attempt_at` and `last_attempt_error` are distinct from the last successful evidence snapshot. New runs are labeled `openrouter-web-search`, with both selected model/effort pairs saved in `search_parameters` before paid requests. Per-request requested model and effort, returned model, response ID, input/output/reasoning/total token usage, provider-reported cost when present, report, consulted URLs, and summary live in private `search_runs.metadata`. Successful repair metadata is nested under the extraction observation. Missing or malformed reasoning-token usage remains `null`; zero is retained only when explicitly reported. Provider usage and cost are unverified diagnostics. The source stores the latest successful candidate snapshot; it is not an append-only observation history.
 
 ## Verification without paid calls
 
@@ -158,7 +167,7 @@ The command prints a safe final JSON summary and saves milestone snapshots to ig
 
 ### Safe diagnostics for rejected responses
 
-`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most two request snapshots per provider instance. Each identifies the research/extraction phase, requested model and effort, HTTP status, bounded response ID and returned model identifier, known finish reason, search/fetch counts, token usage and provider-reported cost when available. Citation/tool-call counts, extraction candidate count and format, schema-valid candidate count, distinct expected-source matches, duplicate/untrusted source counts, and content length describe response structure without saving response text, URLs, prompts, headers, tool arguments, fetched content, reasoning traces, or raw errors. Reflected API credentials and key-like identifiers are excluded.
+`provider_diagnostics` in the summary (also saved in private `search_runs.metadata.summary`) contains at most three request snapshots per provider instance: research, extraction, and an optional repair. Each identifies its phase, requested model and effort, HTTP status, bounded response ID and returned model identifier, known finish reason, search/fetch counts, token usage and provider-reported cost when available. For a denied request, it also retains an allowlisted access category and bounded router attempt, endpoint, selected-endpoint, and guardrail-stage counts when OpenRouter reports them. Citation/tool-call counts, extraction candidate count and format, schema-valid candidate count, distinct expected-source matches, duplicate/untrusted source counts, repair-validation stage, and content length describe response structure without saving response text, URLs, prompts, headers, router-pipeline details, tool arguments, fetched content, reasoning traces, or raw errors. Reflected API credentials and key-like identifiers are excluded.
 
 Diagnostics are captured before response validation and included in the final recovery snapshot even when research, extraction, or database finalization fails. A response ID or cost is retained only if actually returned and safely parsed; network errors, non-JSON or oversized responses, and non-success HTTP responses may have no such details. Missing or invalid numbers stay `null`, never zero. These figures are provider reports, not independently verified billing totals.
 
@@ -179,7 +188,7 @@ OpenRouter documents `usage.server_tool_use.web_search_requests`, but the second
 - `search_verification: "usage_counter"`: the response reports between one and three searches. No metadata request is needed.
 - `search_verification: "bounded_citations"`: the counter is missing/null and the completed response includes 1–15 provider-generated URL-citation annotations. At least one citation must canonicalize to an individual HTTPS listing on the explicit Luma, Meetup, or Eventbrite allowlist. Other citations do not become candidates. Plain report text alone and excessive or entirely unusable citation sets fail before extraction.
 
-The fallback records `search_usage: "missing"` and `search_tool_calls: null`; it **does not infer query counts from citations, results, or price**. The three-search request limits, two-request ceiling, extraction schema, source allowlist, draft-only writes, and manual publication requirement remain unchanged. This replaces mandatory query-count reporting with bounded, provider-supplied search evidence when that reporting is unavailable; it is not an independent audit of how many searches the server executed.
+The fallback records `search_usage: "missing"` and `search_tool_calls: null`; it **does not infer query counts from citations, results, or price**. The three-search request limits, two primary requests, optional tool-free repair, extraction schema, source allowlist, draft-only writes, and manual publication requirement remain unchanged. This replaces mandatory query-count reporting with bounded, provider-supplied search evidence when that reporting is unavailable; it is not an independent audit of how many searches the server executed.
 
 The compatibility change is covered by offline regression tests for missing counters, bounded citations, invalid/unsupported citations, excessive results, unchanged API limits, and draft-only persistence. The existing Luna response has exactly the evidence shape this fallback accepts. An explicitly approved end-to-end live check is still needed before claiming live compatibility.
 
@@ -197,6 +206,8 @@ A later Luna capture showed an exact three-item direct array with the correct un
 
 A subsequent Luna response used the same nested fact objects as the canonical schema but legacy names for organizer, venue, and founder relevance. Its relevance value was explanatory text rather than a Boolean. A second exact-key adapter maps non-null relevance evidence to `true`, preserves its supporting quote, maps the renamed fields, and leaves the absent address unknown. The transformed result must still pass the full canonical schema and source-coverage checks. Diagnostics identify this form as `legacy_nested`; no candidate values are retained in safe diagnostics.
 
+Other parsed variants are eligible for one repair request only when their candidate count and exact unique canonical source URLs already match the supplied sources. The configured repair model receives that candidate JSON and the expected URLs, with no search/fetch tools and no report or page content. Exact unique trusted-source coverage remains mandatory. Each canonical sibling is accepted only when every non-null scalar already occurred in its corresponding original candidate, apart from the allowlisted legacy `failed_fetch` reason mapping; malformed siblings remain source-only with `invalid_candidate`. Invalid JSON, zero valid siblings, partial/duplicate/untrusted coverage, explicit fetch-count failures, invented facts, tool use, or a wholly noncanonical result fail without a second repair.
+
 ### Run statuses
 
 - `succeeded`: the bounded run completed without recorded errors; it may legitimately find zero events.
@@ -212,16 +223,20 @@ Common codes:
 | Code                                                       | Next action                                                                                            |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `paid_api_not_enabled`                                     | Expected safety gate; approve budget before setting the opt-in                                         |
+| `stale_live_window`                                        | Resolve a new current window immediately before live execution                                         |
 | `missing_ingestion_environment`                            | Supply the required server-side variables                                                              |
-| `invalid_ingestion_config`                                 | Check both JSON fields and the explicit OpenRouter model ID; use `--model` / `--effort` to override    |
+| `invalid_ingestion_config`                                 | Check all four model/effort fields and their explicit OpenRouter model IDs                             |
 | `openrouter_key_file_unavailable`                          | Supply a readable, regular `OPENROUTER.key` in the working directory, at most 4 KiB                    |
 | `invalid_openrouter_key_file`                              | Use one bare key, without JSON, quotes or a `Bearer` prefix                                            |
-| `provider_authentication_failed`                           | Check the OpenRouter credential locally; never paste it into diagnostics                               |
+| `provider_authentication_failed`                           | OpenRouter returned 401; check the credential locally and never paste it into diagnostics              |
+| `provider_access_denied`                                   | OpenRouter returned 403; inspect the safe access category and router counts before another attempt     |
 | `search_usage_missing`                                     | Search execution is unknown; inspect safe diagnostics and account usage before another paid attempt    |
 | `invalid_search_citation` / `search_result_limit_exceeded` | Provider citations were unsupported or excessive; stop before extraction                               |
 | `search_not_performed` / `search_tool_limit_exceeded`      | Zero or excessive searches were reported; inspect model/tool compatibility before another paid attempt |
 | `source_fetch_usage_missing`                               | Counter and exact source-verdict coverage are both missing; stop before accepting candidates           |
 | `source_fetch_incomplete` / `source_fetch_limit_exceeded`  | Fetch count did not match selected listings; leave sources unlinked and inspect compatibility          |
+| `invalid_repair_json` / `invalid_repair_output`            | The one repair response was malformed or could not be proven fact-preserving; do not retry             |
+| `repair_input_too_large` / `unexpected_repair_tools`       | The candidate blob exceeded its bound or repair reported tool use; inspect compatibility               |
 | `provider_diagnostics_unavailable`                         | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
 | `local_database_required`                                  | Use the local stack, not a hosted project                                                              |
 | `ingestion_migration_required`                             | Apply the pending local migration                                                                      |
@@ -229,16 +244,34 @@ Common codes:
 | `provider_quota_or_rate_limit`                             | Stop; inspect API quota/billing/rate limits before another paid run                                    |
 | `provider_incomplete` / `provider_request_failed`          | Inspect API usage; do not automatically retry                                                          |
 | `incomplete_event` / `candidate_missing`                   | Inspect the private source/research report; leave the source unlinked                                  |
+| `event_already_started`                                    | Leave the source unlinked; do not create or refresh a past-event draft                                 |
 | `run_finish_failed`                                        | Use the local checkpoint; the database run may still say running                                       |
 | `progress_write_failed`                                    | Local recovery-file write failed; inspect the database summary                                         |
 
-## Live source-verification acceptance gate still pending
+Requests opt into OpenRouter router metadata so a denied request can be distinguished as a guardrail, data-policy, geographic, model-access, account-access, or unknown failure. Diagnostics retain only that category and bounded attempt/endpoint/stage counts. Provider messages, pipeline details, headers, credentials, prompts, source content, and reasoning traces are never stored or printed. A router attempt of zero means OpenRouter did not reach a model provider; it does not by itself identify which access policy denied the request.
 
-- Run with a small agreed API budget and a current, fixed date window.
-- Confirm extraction records either an exact reported fetch count or `required_tool_and_source_coverage`.
-- Verify that stale or conflicting pages remain unlinked while current listings become drafts.
-- Verify up to three real upcoming NYC events against their original links, including year, timezone, venue, relevance, and unknown fields.
-- Confirm all new events remain nonfixture drafts and have source URLs/evidence.
-- Repeat the same bounded search and confirm the same source identities reuse records.
+## Live source-verification acceptance gate
+
+The isolated repair checkpoint is complete: one Luna request canonicalized the preserved three-candidate response, retained its two usable events and one rejected source, made no searches or database writes, and reported a cost of $0.00208335. The remaining gate is a fresh end-to-end run:
+
+- The September 8–22 run `a1344244-a8ee-4361-bc79-cb0ada11b150` succeeded with two newly discovered Meetup sources, two event drafts, no unlinked sources, and no errors.
+- Research used bounded provider citations. Extraction used exact required-tool/source coverage because OpenRouter omitted the fetch counter, then one accepted repair produced two canonical candidates.
+- Both original Meetup listings matched the stored titles, dates, times, NYC venue, and founder/investor relevance. Organizer, price, and registration status stayed unknown rather than being inferred. The secondary Eventbrite ticket pages rate-limited independent inspection.
+- Both records are nonfixture drafts with source evidence. One began at 7:00 p.m. on September 8 and was persisted about four minutes after it started because the explicitly selected window began at midnight; it should not be published. The September 21 event remained upcoming at review time.
+- The three model requests reported $0.03188156 combined cost, including the $0.00172905 repair. Search count and any separate hosted-search cost remain unknown because OpenRouter omitted the search-usage counter.
+- Cleanup complete: the already-started event was archived with its source evidence intact, the upcoming event's operator preview had no blockers, and both sandbox-interrupted zero-source runs were marked cancelled with `run_cancelled` audit summaries.
+- Repeat run `100aaf50-3dd7-4ff0-ba9d-58b0a5440983` rediscovered the same two URLs, created zero sources, updated both existing source rows, and created no duplicate events. Each URL still has exactly one source row linked to its original event.
+- The repeat finished `partial` because Luna changed both candidate relevance verdicts to `false`, producing `irrelevant_event`. The prior event links and successful evidence timestamps were retained, the archived event remained archived, and the upcoming event remained a draft. This validates the failure-preservation boundary while exposing relevance consistency as the next quality issue.
+- The repeat's three model requests reported $0.03162429 combined cost. Search count and any separate hosted-search cost remain unknown because OpenRouter again omitted its search-usage counter.
+- The provider-facing schema now permits only explicit `true` or unknown relevance, and local validation requires every verified candidate to contain `true` plus a nonblank supporting quote. A model that cannot confirm relevance must return a fact-free `source_evidence_insufficient` rejection. The complete 97-test offline suite passes with this rule.
+- Controlled refresh `c17329a9-62b8-4ec0-8e88-2cb8b27de053` used the same September 8–22 window and limit of three. It found the two existing Meetup URLs plus one new Luma URL. Luna's repair returned exact source coverage with two schema-valid candidates and one malformed candidate, so the run failed closed with `invalid_repair_output` and wrote no events.
+- The two existing source/event identities, September 8 evidence snapshots, archived/draft publication states, and unpublished status were preserved. The new Luma source remains unlinked. All three source rows record only the failed refresh attempt.
+- The refresh's three model requests reported $0.03492910 combined cost. Search count and any separate hosted-search cost remain unknown because OpenRouter again omitted its search-usage counter.
+- Per-candidate repair isolation is implemented offline. A regression case accepts an exact two-source repair with one valid and one malformed sibling, writes only the valid draft, leaves the malformed source unlinked with `invalid_candidate`, and records `accepted_partial`. Repairs with no valid candidates, invented facts, duplicate/missing/untrusted URLs, or tool use still fail closed. The complete 97-test offline suite passes.
+- Run `103b9926-addc-438e-b444-144ca09a98f7` was executed on September 24 with a September 14–28 window prepared ten days earlier. It discovered two new sources, wrote one event, left one source unlinked with `source_evidence_insufficient`, and reported $0.03148083 in combined model cost. Search count and any separate hosted-search cost remain unknown.
+- The repair was fully `accepted` with two canonical candidates, so this run did not exercise the new `accepted_partial` path. The Eventbrite event began on September 15, review correctly blocked it from the upcoming feed, and it is now archived with evidence intact. The September 28 Meetup page later showed sufficient public date, venue, and founder/investor evidence, making its fact-free rejection a safe false negative rather than a false publication.
+- Live mode now rejects a search start more than 15 minutes old before reading credentials, database access, or paid requests. Normalization also rejects an event at or before the run's actual observation time. These guards are covered offline without weakening plan or replay workflows.
+- Still pending: resolve and run one genuinely fresh current window immediately before execution, then review every resulting draft before deciding whether to publish. Do not rely on unattended recurring ingestion until that check succeeds consistently.
+
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
 - Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.

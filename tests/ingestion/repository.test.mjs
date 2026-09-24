@@ -38,6 +38,8 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
     client,
     "openai/gpt-4.1",
     "high",
+    "qwen/qwen3.5-27b",
+    "none",
   );
   const id = await repo.start(options);
   await repo.checkpoint(id, { phase: "research" });
@@ -63,6 +65,11 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
   assert.equal(calls[1].body.provider, "openrouter-web-search");
   assert.equal(calls[1].body.search_parameters.model, "openai/gpt-4.1");
   assert.equal(calls[1].body.search_parameters.effort, "high");
+  assert.equal(
+    calls[1].body.search_parameters.repair_model,
+    "qwen/qwen3.5-27b",
+  );
+  assert.equal(calls[1].body.search_parameters.repair_effort, "none");
   assert.match(calls[3].url, /\/rest\/v1\/rpc\/ingest_event_source/);
   assert.equal(calls[3].body.p_event, null);
   assert.equal(calls[3].body.p_run_id, id);

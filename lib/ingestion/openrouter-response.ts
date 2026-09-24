@@ -55,8 +55,9 @@ export type RouterResponse = z.infer<typeof responseSchema>;
 export function providerHttpError(status: number): IngestionError {
   if (status === 402 || status === 429)
     return new IngestionError("provider_quota_or_rate_limit");
-  if (status === 401 || status === 403)
+  if (status === 401)
     return new IngestionError("provider_authentication_failed");
+  if (status === 403) return new IngestionError("provider_access_denied");
   return new IngestionError("provider_request_failed");
 }
 

@@ -3,6 +3,7 @@ import { IngestionError } from "./errors.ts";
 import type { SearchOptions } from "./contracts.ts";
 
 const DAY_MS = 86400000;
+const LIVE_WINDOW_GRACE_MS = 15 * 60 * 1000;
 const optionsSchema = z
   .object({
     from: z.iso.datetime({ offset: true }),
@@ -26,4 +27,21 @@ export function validateSearchOptions(value: unknown): SearchOptions {
   if (duration <= 0 || duration > 31 * DAY_MS)
     throw new IngestionError("invalid_search_window");
   return result.data;
+}
+
+/** Live collection must begin near execution time, before any paid work. */
+export function validateLiveSearchWindow(
+  options: SearchOptions,
+  now = new Date(),
+): SearchOptions {
+  const validated = validateSearchOptions(options);
+  const current = now.getTime();
+  if (
+    !Number.isFinite(current) ||
+    Date.parse(validated.from) < current - LIVE_WINDOW_GRACE_MS ||
+    Date.parse(validated.to) <= current
+  ) {
+    throw new IngestionError("stale_live_window");
+  }
+  return validated;
 }

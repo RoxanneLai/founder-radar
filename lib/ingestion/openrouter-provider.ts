@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import type { Json } from "../database.types.ts";
 import { candidateSchema } from "./contracts.ts";
 import type {
   DiscoveryProvider,
@@ -14,8 +15,10 @@ import { ALLOWED_DOMAINS, sourceIdentity } from "./sources.ts";
 import { IngestionError } from "./errors.ts";
 import {
   EXTRACTION_INSTRUCTIONS,
+  REPAIR_INSTRUCTIONS,
   RESEARCH_INSTRUCTIONS,
   extractionInput,
+  repairInput,
   researchInput,
 } from "./prompts.ts";
 import {
@@ -28,7 +31,9 @@ import type { RouterResponse } from "./openrouter-response.ts";
 import { routerDiagnostic } from "./openrouter-diagnostics.ts";
 
 export const API_LIMITS = {
-  calls: 2,
+  calls: 3,
+  primaryCalls: 2,
+  repairCalls: 1,
   searchToolCalls: 3,
   fetchToolCalls: 10,
   fetchContentTokens: 6000,
@@ -37,6 +42,8 @@ export const API_LIMITS = {
   searchResultCharacters: 2000,
   researchOutputTokens: 6000,
   extractionOutputTokens: 12000,
+  repairOutputTokens: 6000,
+  repairInputCharacters: 60000,
   requestTimeoutMs: 120000,
   reportCharacters: 40000,
   responseBytes: 1048576,
@@ -302,11 +309,16 @@ function reportedSourceUrls(response: RouterResponse): string[] {
   return [...selected];
 }
 
-function hasCompleteSourceCoverage(
+type SourceCoverage = {
+  exact: boolean;
+  complete: boolean;
+};
+
+function inspectSourceCoverage(
   candidates: unknown[],
   sources: SourceIdentity[],
   diagnostic: ProviderDiagnostic,
-): boolean {
+): SourceCoverage {
   const expected = new Set(sources.map((source) => source.source_url));
   const seen = new Set<string>();
   let schemaValid = 0;
@@ -335,24 +347,29 @@ function hasCompleteSourceCoverage(
   diagnostic.extraction_source_match_count = seen.size;
   diagnostic.extraction_duplicate_source_count = duplicates;
   diagnostic.extraction_untrusted_source_count = untrusted;
-  return (
+  const exact =
     candidates.length === sources.length &&
-    schemaValid === candidates.length &&
     seen.size === expected.size &&
     duplicates === 0 &&
-    untrusted === 0
-  );
+    untrusted === 0;
+  return { exact, complete: exact && schemaValid === candidates.length };
 }
 
 function extractionCandidates(
   value: unknown,
   diagnostic: ProviderDiagnostic,
   allowEncoded = true,
+  canonicalize = true,
 ): unknown[] | null {
   if (allowEncoded) diagnostic.extraction_shape = "invalid";
   if (typeof value === "string" && allowEncoded) {
     try {
-      const nested = extractionCandidates(JSON.parse(value), diagnostic, false);
+      const nested = extractionCandidates(
+        JSON.parse(value),
+        diagnostic,
+        false,
+        canonicalize,
+      );
       if (nested) diagnostic.extraction_shape = "encoded_candidate_envelope";
       return nested;
     } catch {
@@ -386,7 +403,16 @@ function extractionCandidates(
   if (candidates && candidates.length <= 100)
     diagnostic.extraction_candidate_count = candidates.length;
   if (!candidates) return null;
-  const converted = candidates.map(canonicalCandidate);
+  const converted = candidates.map((candidate) =>
+    canonicalize
+      ? canonicalCandidate(candidate)
+      : {
+          value: candidate,
+          format: candidateSchema.safeParse(candidate).success
+            ? ("canonical" as const)
+            : ("invalid" as const),
+        },
+  );
   const formats = new Set(converted.map((candidate) => candidate.format));
   diagnostic.extraction_candidate_format = formats.has("invalid")
     ? "invalid"
@@ -396,21 +422,130 @@ function extractionCandidates(
   return converted.map((candidate) => candidate.value);
 }
 
+function candidateResponseFormat(count: number) {
+  return {
+    type: "json_schema" as const,
+    json_schema: {
+      name: "event_candidates",
+      strict: true,
+      schema: z.toJSONSchema(
+        z
+          .object({ candidates: z.array(candidateSchema).length(count) })
+          .strict(),
+      ),
+    },
+  };
+}
+
+function hasRepairableSourceCoverage(
+  candidates: unknown[],
+  sources: SourceIdentity[],
+  diagnostic: ProviderDiagnostic,
+): boolean {
+  return (
+    candidates.length === sources.length &&
+    diagnostic.extraction_candidate_count === sources.length &&
+    diagnostic.extraction_source_match_count === sources.length &&
+    diagnostic.extraction_duplicate_source_count === 0 &&
+    diagnostic.extraction_untrusted_source_count === 0 &&
+    diagnostic.extraction_schema_valid_count !== sources.length
+  );
+}
+
+function scalarKey(value: string | number | boolean): string {
+  return typeof value + ":" + JSON.stringify(value);
+}
+
+function collectScalars(
+  value: unknown,
+  result = new Set<string>(),
+): Set<string> {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    result.add(scalarKey(value));
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectScalars(item, result);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectScalars(item, result);
+  }
+  return result;
+}
+
+function candidateSourceUrl(value: unknown): string | null {
+  return value &&
+    typeof value === "object" &&
+    "source_url" in value &&
+    typeof value.source_url === "string"
+    ? (sourceIdentity(value.source_url)?.source_url ?? null)
+    : null;
+}
+
+/** Valid repaired siblings may rearrange existing scalars, never add facts. */
+function validRepairsPreserveCandidateScalars(
+  original: unknown[],
+  repaired: unknown[],
+): boolean {
+  const originals = new Map<string, Set<string>>();
+  for (const candidate of original) {
+    const url = candidateSourceUrl(candidate);
+    if (!url || originals.has(url)) return false;
+    originals.set(url, collectScalars(candidate));
+  }
+  let validCandidates = 0;
+  for (const candidate of repaired) {
+    const parsed = candidateSchema.safeParse(candidate);
+    if (!parsed.success) continue;
+    validCandidates += 1;
+    const url = candidateSourceUrl(candidate);
+    const allowed = url ? originals.get(url) : null;
+    if (!allowed) return false;
+    const clone = structuredClone(parsed.data) as Record<string, unknown>;
+    delete clone.source_url;
+    const scalars = collectScalars(clone);
+    for (const scalar of scalars) {
+      if (allowed.has(scalar)) continue;
+      if (
+        scalar === scalarKey("source_fetch_failed") &&
+        allowed.has(scalarKey("failed_fetch"))
+      )
+        continue;
+      return false;
+    }
+  }
+  return validCandidates > 0;
+}
+
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
 export function createOpenRouterProvider(
   apiKey: string,
   model: string,
   effort: ReasoningEffort,
+  repairModel: string,
+  repairEffort: ReasoningEffort,
 ): DiscoveryProvider {
-  return new OpenRouterSearchProvider(apiKey, model, effort);
+  return new OpenRouterSearchProvider(
+    apiKey,
+    model,
+    effort,
+    fetch,
+    repairModel,
+    repairEffort,
+  );
 }
 
 export class OpenRouterSearchProvider implements DiscoveryProvider {
   private calls = 0;
+  private primaryCalls = 0;
+  private repairCalls = 0;
   private readonly diagnostics: ProviderDiagnostic[] = [];
   private readonly apiKey: string;
   private readonly model: string;
   private readonly effort: ReasoningEffort;
+  private readonly repairModel: string;
+  private readonly repairEffort: ReasoningEffort;
   private readonly fetcher: typeof fetch;
 
   constructor(
@@ -418,10 +553,14 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     model: string,
     effort: ReasoningEffort,
     fetcher: typeof fetch = fetch,
+    repairModel = "openai/gpt-5.6-luna",
+    repairEffort: ReasoningEffort = "medium",
   ) {
     this.apiKey = apiKey;
     this.model = model;
     this.effort = effort;
+    this.repairModel = repairModel;
+    this.repairEffort = repairEffort;
     this.fetcher = fetcher;
   }
 
@@ -434,16 +573,26 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     phase: ProviderDiagnostic["phase"],
     body: Record<string, unknown>,
     signal: AbortSignal,
+    requestedModel = this.model,
+    requestedEffort = this.effort,
   ): Promise<RouterResponse> {
     if (signal.aborted) throw new IngestionError("run_cancelled");
-    if (this.calls >= API_LIMITS.calls)
+    const repair = phase === "repair";
+    if (
+      this.calls >= API_LIMITS.calls ||
+      (repair
+        ? this.repairCalls >= API_LIMITS.repairCalls
+        : this.primaryCalls >= API_LIMITS.primaryCalls)
+    )
       throw new IngestionError("api_call_limit");
     this.calls += 1;
+    if (repair) this.repairCalls += 1;
+    else this.primaryCalls += 1;
     const diagnostic = routerDiagnostic(
       null,
       phase,
-      this.model,
-      this.effort,
+      requestedModel,
+      requestedEffort,
       this.apiKey,
     );
     this.diagnostics.push(diagnostic);
@@ -459,21 +608,38 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           headers: {
             Authorization: "Bearer " + this.apiKey,
             "Content-Type": "application/json",
+            "X-OpenRouter-Metadata": "enabled",
           },
           redirect: "error",
           signal: boundedSignal,
           body: JSON.stringify({
-            model: this.model,
+            model: requestedModel,
             stream: false,
             provider: { require_parameters: true, allow_fallbacks: false },
             ...body,
-            reasoning: { effort: this.effort, exclude: true },
+            reasoning: { effort: requestedEffort, exclude: true },
           }),
         },
       );
       diagnostic.http_status = response.status;
       if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
+        let value: unknown = null;
+        try {
+          value = await readResponseJson(response, API_LIMITS.responseBytes);
+        } catch {
+          await response.body?.cancel().catch(() => {});
+        }
+        Object.assign(
+          diagnostic,
+          routerDiagnostic(
+            value,
+            phase,
+            requestedModel,
+            requestedEffort,
+            this.apiKey,
+            response.status,
+          ),
+        );
         throw providerHttpError(response.status);
       }
       const value = await readResponseJson(response, API_LIMITS.responseBytes);
@@ -482,8 +648,8 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         routerDiagnostic(
           value,
           phase,
-          this.model,
-          this.effort,
+          requestedModel,
+          requestedEffort,
           this.apiKey,
           response.status,
         ),
@@ -531,8 +697,8 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     response: RouterResponse,
     expected: number,
     completeSourceCoverage: boolean,
+    diagnostic = this.diagnostics.at(-1)!,
   ): ProviderDiagnostic {
-    const diagnostic = this.diagnostics.at(-1)!;
     const searches = response.usage?.server_tool_use?.web_search_requests;
     if (searches != null && searches !== 0)
       throw new IngestionError("unexpected_extraction_search");
@@ -548,6 +714,85 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       throw new IngestionError("source_fetch_limit_exceeded");
     diagnostic.fetch_verification = "usage_counter";
     return diagnostic;
+  }
+
+  private verifyRepairUsedNoTools(response: RouterResponse): void {
+    const diagnostic = this.diagnostics.at(-1)!;
+    const tools = response.usage?.server_tool_use;
+    if (
+      (tools?.web_search_requests ?? 0) !== 0 ||
+      (tools?.web_fetch_requests ?? 0) !== 0
+    ) {
+      diagnostic.repair_validation = "unexpected_tool_use";
+      throw new IngestionError("unexpected_repair_tools");
+    }
+  }
+
+  private async repairCandidates(
+    content: string,
+    original: unknown[],
+    sources: SourceIdentity[],
+    signal: AbortSignal,
+  ): Promise<{ candidates: unknown[]; metadata: Record<string, Json> }> {
+    if (content.length > API_LIMITS.repairInputCharacters)
+      throw new IngestionError("repair_input_too_large");
+    const response = await this.request(
+      "repair",
+      {
+        messages: [
+          { role: "system", content: REPAIR_INSTRUCTIONS },
+          { role: "user", content: repairInput(content, sources) },
+        ],
+        max_tokens: API_LIMITS.repairOutputTokens,
+        response_format: candidateResponseFormat(sources.length),
+      },
+      signal,
+      this.repairModel,
+      this.repairEffort,
+    );
+    this.verifyRepairUsedNoTools(response);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(response.choices[0].message.content ?? "");
+    } catch {
+      this.diagnostics.at(-1)!.repair_validation = "invalid_json";
+      throw new IngestionError("invalid_repair_json");
+    }
+    const diagnostic = this.diagnostics.at(-1)!;
+    // Repair output is never passed through legacy adapters: every usable
+    // sibling must independently satisfy the current canonical contract.
+    const candidates = extractionCandidates(parsed, diagnostic, true, false);
+    const coverage = candidates
+      ? inspectSourceCoverage(candidates, sources, diagnostic)
+      : null;
+    if (!candidates) {
+      diagnostic.repair_validation = "invalid_shape";
+      throw new IngestionError("invalid_repair_output");
+    }
+    if (!diagnostic.extraction_schema_valid_count) {
+      diagnostic.repair_validation = "invalid_format";
+      throw new IngestionError("invalid_repair_output");
+    }
+    if (!coverage?.exact) {
+      diagnostic.repair_validation = "invalid_coverage";
+      throw new IngestionError("invalid_repair_output");
+    }
+    if (!validRepairsPreserveCandidateScalars(original, candidates)) {
+      diagnostic.repair_validation = "scalar_preservation_failed";
+      throw new IngestionError("invalid_repair_output");
+    }
+    diagnostic.repair_validation = coverage.complete
+      ? "accepted"
+      : "accepted_partial";
+    return {
+      candidates,
+      metadata: routerMetadata(
+        response,
+        this.repairModel,
+        this.repairEffort,
+        diagnostic,
+      ) as Record<string, Json>,
+    };
   }
 
   async research(
@@ -624,20 +869,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         tool_choice: "required",
         max_tool_calls: sources.length,
         max_tokens: API_LIMITS.extractionOutputTokens,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "event_candidates",
-            strict: true,
-            schema: z.toJSONSchema(
-              z
-                .object({
-                  candidates: z.array(candidateSchema).length(sources.length),
-                })
-                .strict(),
-            ),
-          },
-        },
+        response_format: candidateResponseFormat(sources.length),
       },
       signal,
     );
@@ -648,26 +880,61 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       throw new IngestionError("invalid_extraction_json");
     }
     const responseDiagnostic = this.diagnostics.at(-1)!;
-    const candidates = extractionCandidates(parsed, responseDiagnostic);
-    const completeSourceCoverage = candidates
-      ? hasCompleteSourceCoverage(candidates, sources, responseDiagnostic)
-      : false;
+    let candidates = extractionCandidates(parsed, responseDiagnostic);
+    let sourceCoverage = candidates
+      ? inspectSourceCoverage(candidates, sources, responseDiagnostic)
+      : null;
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
     if (!candidates || candidates.length !== sources.length)
       throw new IngestionError("invalid_extraction_shape");
+    const reportedTools = response.usage?.server_tool_use;
+    if (
+      (reportedTools?.web_search_requests ?? 0) !== 0 ||
+      reportedTools?.web_fetch_requests != null
+    ) {
+      this.verifyExtractionFetch(
+        response,
+        sources.length,
+        sourceCoverage?.complete ?? false,
+        responseDiagnostic,
+      );
+    }
+    let repairMetadata: Record<string, Json> | null = null;
+    if (
+      !sourceCoverage?.complete &&
+      hasRepairableSourceCoverage(candidates, sources, responseDiagnostic)
+    ) {
+      const repaired = await this.repairCandidates(
+        response.choices[0].message.content ?? "",
+        candidates,
+        sources,
+        signal,
+      );
+      candidates = repaired.candidates;
+      repairMetadata = repaired.metadata;
+      sourceCoverage = inspectSourceCoverage(
+        candidates,
+        sources,
+        this.diagnostics.at(-1)!,
+      );
+    }
     const verifiedDiagnostic = this.verifyExtractionFetch(
       response,
       sources.length,
-      completeSourceCoverage,
+      sourceCoverage?.exact ?? false,
+      responseDiagnostic,
     );
+    const metadata = routerMetadata(
+      response,
+      this.model,
+      this.effort,
+      verifiedDiagnostic,
+    ) as Record<string, Json>;
     return {
       candidates,
-      metadata: routerMetadata(
-        response,
-        this.model,
-        this.effort,
-        verifiedDiagnostic,
-      ),
+      metadata: repairMetadata
+        ? { ...metadata, repair_applied: true, repair: repairMetadata }
+        : metadata,
     };
   }
 }

@@ -21,7 +21,12 @@ const modelSchema = z
   );
 const effortSchema = z.enum(REASONING_EFFORTS);
 const settingsSchema = z
-  .object({ model: modelSchema, effort: effortSchema })
+  .object({
+    model: modelSchema,
+    effort: effortSchema,
+    repair_model: modelSchema,
+    repair_effort: effortSchema,
+  })
   .strict();
 
 /** Read a small regular file only; never echo file contents or filesystem errors. */
@@ -65,13 +70,26 @@ export async function readModelConfig(
   path = DEFAULT_CONFIG_PATH,
   modelOverride?: string,
   effortOverride?: string,
-): Promise<{ model: string; effort: ReasoningEffort }> {
+  repairModelOverride?: string,
+  repairEffortOverride?: string,
+): Promise<{
+  model: string;
+  effort: ReasoningEffort;
+  repairModel: string;
+  repairEffort: ReasoningEffort;
+}> {
   const text = await readLocalText(path, 16384, "invalid_ingestion_config");
   try {
     const settings = settingsSchema.parse(JSON.parse(text));
     return {
       model: modelSchema.parse(modelOverride ?? settings.model),
       effort: effortSchema.parse(effortOverride ?? settings.effort),
+      repairModel: modelSchema.parse(
+        repairModelOverride ?? settings.repair_model,
+      ),
+      repairEffort: effortSchema.parse(
+        repairEffortOverride ?? settings.repair_effort,
+      ),
     };
   } catch {
     throw new IngestionError("invalid_ingestion_config");

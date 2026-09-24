@@ -28,7 +28,9 @@ const priceFact = z
   .strict();
 const relevantFact = z
   .object({
-    value: z.boolean().nullable(),
+    // A selected event is either explicitly relevant or rejected. `false` is
+    // not a usable event fact and must not survive structured extraction.
+    value: z.literal(true).nullable(),
     quote: z.string().nullable(),
   })
   .strict();
@@ -92,7 +94,9 @@ export const candidateSchema = z
     const inconsistent = rejected
       ? candidate.source_verification.reason === null ||
         facts.some((fact) => fact.value !== null || fact.quote !== null)
-      : candidate.source_verification.reason !== null;
+      : candidate.source_verification.reason !== null ||
+        candidate.relevant_to_founders.value !== true ||
+        !candidate.relevant_to_founders.quote?.trim();
     if (inconsistent)
       context.addIssue({
         code: "custom",
@@ -143,12 +147,25 @@ export type Extraction = {
 };
 
 export type ProviderDiagnostic = {
-  phase: "research" | "extraction";
+  phase: "research" | "extraction" | "repair";
   requested_model: string | null;
   requested_effort: ReasoningEffort | null;
   response_id: string | null;
   model: string | null;
   http_status: number | null;
+  access_denial:
+    | "guardrail"
+    | "data_policy"
+    | "geographic_restriction"
+    | "model_access"
+    | "account_access"
+    | "unknown"
+    | null;
+  router_attempt: number | null;
+  router_endpoint_total: number | null;
+  router_endpoint_available_count: number | null;
+  router_endpoint_selected_count: number | null;
+  router_guardrail_stage_count: number | null;
   finish_reason: string | null;
   search_usage: "missing" | "invalid" | "reported";
   search_tool_calls: number | null;
@@ -170,6 +187,16 @@ export type ProviderDiagnostic = {
   extraction_untrusted_source_count: number | null;
   extraction_candidate_format:
     "canonical" | "legacy_flat" | "legacy_nested" | "mixed" | "invalid" | null;
+  repair_validation:
+    | "accepted"
+    | "accepted_partial"
+    | "invalid_json"
+    | "invalid_shape"
+    | "invalid_format"
+    | "invalid_coverage"
+    | "scalar_preservation_failed"
+    | "unexpected_tool_use"
+    | null;
   citation_count: number | null;
   tool_call_count: number | null;
   content_characters: number | null;

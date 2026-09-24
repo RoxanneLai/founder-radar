@@ -18,6 +18,8 @@ export function createIngestionRepository(
   key: string,
   model: string,
   effort: ReasoningEffort,
+  repairModel: string,
+  repairEffort: ReasoningEffort,
 ): IngestionRepository {
   const client = createClient<Database>(url, key, {
     auth: {
@@ -36,22 +38,34 @@ export function createIngestionRepository(
         }),
     },
   });
-  return new SupabaseIngestionRepository(client, model, effort);
+  return new SupabaseIngestionRepository(
+    client,
+    model,
+    effort,
+    repairModel,
+    repairEffort,
+  );
 }
 
 export class SupabaseIngestionRepository implements IngestionRepository {
   private readonly client: SupabaseClient<Database>;
   private readonly model: string | null;
   private readonly effort: ReasoningEffort | null;
+  private readonly repairModel: string | null;
+  private readonly repairEffort: ReasoningEffort | null;
 
   constructor(
     client: SupabaseClient<Database>,
     model: string | null = null,
     effort: ReasoningEffort | null = null,
+    repairModel: string | null = null,
+    repairEffort: ReasoningEffort | null = null,
   ) {
     this.client = client;
     this.model = model;
     this.effort = effort;
+    this.repairModel = repairModel;
+    this.repairEffort = repairEffort;
   }
 
   async start(options: SearchOptions): Promise<string> {
@@ -71,6 +85,8 @@ export class SupabaseIngestionRepository implements IngestionRepository {
           ...options,
           model: this.model,
           effort: this.effort,
+          repair_model: this.repairModel,
+          repair_effort: this.repairEffort,
         },
         status: "running",
       })
