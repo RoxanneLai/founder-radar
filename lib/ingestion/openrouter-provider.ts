@@ -49,6 +49,8 @@ export const API_LIMITS = {
   responseBytes: 1048576,
 } as const;
 
+const MAX_REPAIR_MISMATCH_PATHS = 32;
+
 const flatText = z.string().nullable();
 const flatQuote = z.string().nullable();
 const flatVerificationReason = z
@@ -474,6 +476,33 @@ function collectScalars(
   return result;
 }
 
+type ScalarEntry = {
+  path: string;
+  value: string | number | boolean;
+};
+
+function collectScalarEntries(
+  value: unknown,
+  path = "",
+  result: ScalarEntry[] = [],
+): ScalarEntry[] {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    result.push({ path, value });
+  } else if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectScalarEntries(item, `${path}[${index}]`, result),
+    );
+  } else if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value))
+      collectScalarEntries(item, path ? `${path}.${key}` : key, result);
+  }
+  return result;
+}
+
 function candidateSourceUrl(value: unknown): string | null {
   return value &&
     typeof value === "object" &&
@@ -483,39 +512,59 @@ function candidateSourceUrl(value: unknown): string | null {
     : null;
 }
 
+type RepairScalarCheck = {
+  valid: boolean;
+  mismatchCount: number | null;
+  mismatchPaths: string[] | null;
+};
+
 /** Valid repaired siblings may rearrange existing scalars, never add facts. */
 function validRepairsPreserveCandidateScalars(
   original: unknown[],
   repaired: unknown[],
-): boolean {
+): RepairScalarCheck {
   const originals = new Map<string, Set<string>>();
   for (const candidate of original) {
     const url = candidateSourceUrl(candidate);
-    if (!url || originals.has(url)) return false;
+    if (!url || originals.has(url))
+      return { valid: false, mismatchCount: null, mismatchPaths: null };
     originals.set(url, collectScalars(candidate));
   }
   let validCandidates = 0;
-  for (const candidate of repaired) {
+  let mismatchCount = 0;
+  const mismatchPaths: string[] = [];
+  for (const [index, candidate] of repaired.entries()) {
     const parsed = candidateSchema.safeParse(candidate);
     if (!parsed.success) continue;
     validCandidates += 1;
     const url = candidateSourceUrl(candidate);
     const allowed = url ? originals.get(url) : null;
-    if (!allowed) return false;
+    if (!allowed)
+      return { valid: false, mismatchCount: null, mismatchPaths: null };
     const clone = structuredClone(parsed.data) as Record<string, unknown>;
     delete clone.source_url;
-    const scalars = collectScalars(clone);
-    for (const scalar of scalars) {
+    for (const entry of collectScalarEntries(clone)) {
+      const scalar = scalarKey(entry.value);
       if (allowed.has(scalar)) continue;
       if (
         scalar === scalarKey("source_fetch_failed") &&
         allowed.has(scalarKey("failed_fetch"))
       )
         continue;
-      return false;
+      mismatchCount += 1;
+      const path = `candidates[${index}].${entry.path}`;
+      if (
+        mismatchPaths.length < MAX_REPAIR_MISMATCH_PATHS &&
+        !mismatchPaths.includes(path)
+      )
+        mismatchPaths.push(path);
     }
   }
-  return validCandidates > 0;
+  return {
+    valid: validCandidates > 0 && mismatchCount === 0,
+    mismatchCount,
+    mismatchPaths,
+  };
 }
 
 /** Fixed HTTPS endpoint; no custom URLs, retries, redirects, or model fallback. */
@@ -777,7 +826,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       diagnostic.repair_validation = "invalid_coverage";
       throw new IngestionError("invalid_repair_output");
     }
-    if (!validRepairsPreserveCandidateScalars(original, candidates)) {
+    const scalarCheck = validRepairsPreserveCandidateScalars(
+      original,
+      candidates,
+    );
+    diagnostic.repair_scalar_mismatch_count = scalarCheck.mismatchCount;
+    diagnostic.repair_scalar_mismatch_paths = scalarCheck.mismatchPaths;
+    if (!scalarCheck.valid) {
       diagnostic.repair_validation = "scalar_preservation_failed";
       throw new IngestionError("invalid_repair_output");
     }

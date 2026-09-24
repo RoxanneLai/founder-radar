@@ -273,6 +273,8 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     "canonical",
   );
   assert.equal(provider.getDiagnostics()[1].repair_validation, null);
+  assert.equal(provider.getDiagnostics()[1].repair_scalar_mismatch_count, null);
+  assert.equal(provider.getDiagnostics()[1].repair_scalar_mismatch_paths, null);
   assert.equal(provider.getDiagnostics()[1].extraction_schema_valid_count, 1);
   assert.equal(provider.getDiagnostics()[1].extraction_source_match_count, 1);
   assert.equal(
@@ -751,6 +753,11 @@ test("one tool-free repair call handles only a source-complete schema variant", 
     "canonical",
   );
   assert.equal(provider.getDiagnostics()[1].repair_validation, "accepted");
+  assert.equal(provider.getDiagnostics()[1].repair_scalar_mismatch_count, 0);
+  assert.deepEqual(
+    provider.getDiagnostics()[1].repair_scalar_mismatch_paths,
+    [],
+  );
 
   const second = "https://luma.com/second-event";
   const partialSource = extractionResponse(
@@ -791,6 +798,14 @@ test("one tool-free repair call handles only a source-complete schema variant", 
   assert.equal(
     partialProvider.getDiagnostics()[1].repair_validation,
     "accepted_partial",
+  );
+  assert.equal(
+    partialProvider.getDiagnostics()[1].repair_scalar_mismatch_count,
+    0,
+  );
+  assert.deepEqual(
+    partialProvider.getDiagnostics()[1].repair_scalar_mismatch_paths,
+    [],
   );
   assert.equal(
     partialProvider.getDiagnostics()[1].extraction_schema_valid_count,
@@ -876,11 +891,22 @@ test("repair rejects invented facts and any reported tool use without retrying",
       { code },
     );
     assert.equal(requests.length, 2);
+    const diagnostic = provider.getDiagnostics()[1];
     assert.equal(
-      provider.getDiagnostics()[1].repair_validation,
+      diagnostic.repair_validation,
       code === "unexpected_repair_tools"
         ? "unexpected_tool_use"
         : "scalar_preservation_failed",
+    );
+    assert.equal(
+      diagnostic.repair_scalar_mismatch_count,
+      code === "unexpected_repair_tools" ? null : 1,
+    );
+    assert.deepEqual(
+      diagnostic.repair_scalar_mismatch_paths,
+      code === "unexpected_repair_tools"
+        ? null
+        : ["candidates[0].venue_name.value"],
     );
     assert.ok(!JSON.stringify(provider.getDiagnostics()).includes("Invented"));
   }

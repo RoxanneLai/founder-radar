@@ -187,6 +187,8 @@ export type ProviderDiagnostic = {
   extraction_untrusted_source_count: number | null;
   extraction_candidate_format:
     "canonical" | "legacy_flat" | "legacy_nested" | "mixed" | "invalid" | null;
+  repair_scalar_mismatch_count: number | null;
+  repair_scalar_mismatch_paths: string[] | null;
   repair_validation:
     | "accepted"
     | "accepted_partial"

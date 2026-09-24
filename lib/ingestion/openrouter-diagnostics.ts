@@ -151,6 +151,8 @@ export function routerDiagnostic(
     extraction_duplicate_source_count: null,
     extraction_untrusted_source_count: null,
     extraction_candidate_format: null,
+    repair_scalar_mismatch_count: null,
+    repair_scalar_mismatch_paths: null,
     repair_validation: null,
     citation_count: Array.isArray(message.annotations)
       ? message.annotations.filter(
