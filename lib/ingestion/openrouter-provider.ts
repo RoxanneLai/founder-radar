@@ -642,6 +642,26 @@ type RepairScalarCheck = {
   mismatchPaths: string[] | null;
 };
 
+function canPreserveOriginalCandidates(
+  candidates: unknown[],
+  sources: SourceIdentity[],
+): boolean {
+  if (
+    !candidates.some(
+      (candidate) => candidateSchema.safeParse(candidate).success,
+    )
+  )
+    return false;
+  const expected = new Set(sources.map((source) => source.source_url));
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const url = candidateSourceUrl(candidate);
+    if (!url || !expected.has(url) || seen.has(url)) return false;
+    seen.add(url);
+  }
+  return candidates.length === sources.length && seen.size === expected.size;
+}
+
 /** Valid repaired siblings may rearrange existing scalars, never add facts. */
 function validRepairsPreserveCandidateScalars(
   original: unknown[],
@@ -911,7 +931,11 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     original: unknown[],
     sources: SourceIdentity[],
     signal: AbortSignal,
-  ): Promise<{ candidates: unknown[]; metadata: Record<string, Json> }> {
+  ): Promise<{
+    candidates: unknown[];
+    metadata: Record<string, Json>;
+    applied: boolean;
+  }> {
     if (content.length > API_LIMITS.repairInputCharacters)
       throw new IngestionError("repair_input_too_large");
     const response = await this.request(
@@ -963,6 +987,17 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     diagnostic.repair_scalar_mismatch_paths = scalarCheck.mismatchPaths;
     if (!scalarCheck.valid) {
       diagnostic.repair_validation = "scalar_preservation_failed";
+      if (canPreserveOriginalCandidates(original, sources))
+        return {
+          candidates: original,
+          metadata: routerMetadata(
+            response,
+            this.repairModel,
+            this.repairEffort,
+            diagnostic,
+          ) as Record<string, Json>,
+          applied: false,
+        };
       throw new IngestionError("invalid_repair_output");
     }
     diagnostic.repair_validation = coverage.complete
@@ -976,6 +1011,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         this.repairEffort,
         diagnostic,
       ) as Record<string, Json>,
+      applied: true,
     };
   }
 
@@ -1092,6 +1128,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       );
     }
     let repairMetadata: Record<string, Json> | null = null;
+    let repairApplied = false;
     if (
       !sourceCoverage?.complete &&
       hasRepairableSourceCoverage(candidates, sources, responseDiagnostic)
@@ -1104,10 +1141,11 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       );
       candidates = repaired.candidates;
       repairMetadata = repaired.metadata;
+      repairApplied = repaired.applied;
       sourceCoverage = inspectSourceCoverage(
         candidates,
         sources,
-        this.diagnostics.at(-1)!,
+        repairApplied ? this.diagnostics.at(-1)! : responseDiagnostic,
       );
     }
     const verifiedDiagnostic = this.verifyExtractionFetch(
@@ -1125,7 +1163,12 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     return {
       candidates,
       metadata: repairMetadata
-        ? { ...metadata, repair_applied: true, repair: repairMetadata }
+        ? {
+            ...metadata,
+            repair_attempted: true,
+            repair_applied: repairApplied,
+            repair: repairMetadata,
+          }
         : metadata,
     };
   }

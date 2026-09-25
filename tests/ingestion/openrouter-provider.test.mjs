@@ -981,7 +981,7 @@ test("an invalid reported fetch count fails before spending a repair call", asyn
   assert.equal(provider.getDiagnostics().length, 1);
 });
 
-test("repair rejects invented facts and any reported tool use without retrying", async () => {
+test("repair rejects invented facts, preserves valid originals, and never retries", async () => {
   const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
   const original = extractionResponse(
     JSON.stringify({ candidates: [alternate] }),
@@ -1039,6 +1039,74 @@ test("repair rejects invented facts and any reported tool use without retrying",
     );
     assert.ok(!JSON.stringify(provider.getDiagnostics()).includes("Invented"));
   }
+
+  const second = "https://luma.com/second-event";
+  const mixedOriginal = extractionResponse(
+    JSON.stringify({
+      candidates: [
+        candidate(),
+        { ...candidate(second), unexpected_wrapper_field: "remove me" },
+      ],
+    }),
+  );
+  delete mixedOriginal.usage.server_tool_use.web_fetch_requests;
+  const mixedRepair = response(
+    JSON.stringify({
+      candidates: [
+        {
+          ...candidate(),
+          venue_name: { value: "Invented Place", quote: report },
+        },
+        candidate(second),
+      ],
+    }),
+    0,
+  );
+  const { provider: fallbackProvider, requests: fallbackRequests } =
+    providerWithResponses([mixedOriginal, mixedRepair]);
+  const sources = selectSources([url, second], 3);
+  const extracted = await fallbackProvider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.equal(fallbackRequests.length, 2);
+  assert.equal(extracted.metadata.repair_attempted, true);
+  assert.equal(extracted.metadata.repair_applied, false);
+  assert.deepEqual(extracted.candidates[0], candidate());
+  assert.equal(extracted.candidates[1].unexpected_wrapper_field, "remove me");
+  const fallbackDiagnostics = fallbackProvider.getDiagnostics();
+  assert.equal(fallbackDiagnostics[0].extraction_schema_valid_count, 1);
+  assert.equal(fallbackDiagnostics[1].extraction_schema_valid_count, 2);
+  assert.equal(
+    fallbackDiagnostics[1].repair_validation,
+    "scalar_preservation_failed",
+  );
+  assert.deepEqual(fallbackDiagnostics[1].repair_scalar_mismatch_paths, [
+    "candidates[0].venue_name.value",
+  ]);
+  assert.ok(!JSON.stringify(extracted).includes("Invented"));
+  assert.ok(!JSON.stringify(fallbackDiagnostics).includes("Invented"));
+
+  const repo = memoryRepository();
+  const result = await runIngestion(options, {
+    repository: repo,
+    provider: {
+      async research() {
+        return { report, urls: [url, second], metadata: {} };
+      },
+      async extract() {
+        return extracted;
+      },
+    },
+    signal,
+    now: testNow,
+  });
+  assert.equal(result.status, "partial");
+  assert.equal(result.events_written, 1);
+  assert.equal(result.sources_unlinked, 1);
+  assert.deepEqual(result.errors, ["invalid_candidate"]);
 });
 
 test("cancellation and network failures never retry or expose transport details", async () => {
