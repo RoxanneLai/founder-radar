@@ -981,7 +981,7 @@ test("an invalid reported fetch count fails before spending a repair call", asyn
   assert.equal(provider.getDiagnostics().length, 1);
 });
 
-test("repair rejects invented facts, preserves valid originals, and never retries", async () => {
+test("repair isolates invented facts, preserves safe siblings, and never retries", async () => {
   const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
   const original = extractionResponse(
     JSON.stringify({ candidates: [alternate] }),
@@ -1044,7 +1044,7 @@ test("repair rejects invented facts, preserves valid originals, and never retrie
   const mixedOriginal = extractionResponse(
     JSON.stringify({
       candidates: [
-        candidate(),
+        { ...candidate(), unexpected_wrapper_field: "remove this too" },
         { ...candidate(second), unexpected_wrapper_field: "remove me" },
       ],
     }),
@@ -1073,16 +1073,16 @@ test("repair rejects invented facts, preserves valid originals, and never retrie
   );
   assert.equal(fallbackRequests.length, 2);
   assert.equal(extracted.metadata.repair_attempted, true);
-  assert.equal(extracted.metadata.repair_applied, false);
-  assert.deepEqual(extracted.candidates[0], candidate());
-  assert.equal(extracted.candidates[1].unexpected_wrapper_field, "remove me");
-  const fallbackDiagnostics = fallbackProvider.getDiagnostics();
-  assert.equal(fallbackDiagnostics[0].extraction_schema_valid_count, 1);
-  assert.equal(fallbackDiagnostics[1].extraction_schema_valid_count, 2);
+  assert.equal(extracted.metadata.repair_applied, true);
   assert.equal(
-    fallbackDiagnostics[1].repair_validation,
-    "scalar_preservation_failed",
+    extracted.candidates[0].unexpected_wrapper_field,
+    "remove this too",
   );
+  assert.deepEqual(extracted.candidates[1], candidate(second));
+  const fallbackDiagnostics = fallbackProvider.getDiagnostics();
+  assert.equal(fallbackDiagnostics[0].extraction_schema_valid_count, 0);
+  assert.equal(fallbackDiagnostics[1].extraction_schema_valid_count, 1);
+  assert.equal(fallbackDiagnostics[1].repair_validation, "accepted_partial");
   assert.deepEqual(fallbackDiagnostics[1].repair_scalar_mismatch_paths, [
     "candidates[0].venue_name.value",
   ]);
@@ -1107,6 +1107,56 @@ test("repair rejects invented facts, preserves valid originals, and never retrie
   assert.equal(result.events_written, 1);
   assert.equal(result.sources_unlinked, 1);
   assert.deepEqual(result.errors, ["invalid_candidate"]);
+
+  const preservedOriginal = extractionResponse(
+    JSON.stringify({
+      candidates: [
+        candidate(),
+        { ...candidate(second), unexpected_wrapper_field: "remove me" },
+      ],
+    }),
+  );
+  delete preservedOriginal.usage.server_tool_use.web_fetch_requests;
+  const whollyUnsafeRepair = response(
+    JSON.stringify({
+      candidates: [
+        {
+          ...candidate(),
+          venue_name: { value: "Invented Place", quote: report },
+        },
+        {
+          ...candidate(second),
+          title: { value: "Invented Second Event", quote: report },
+        },
+      ],
+    }),
+    0,
+  );
+  const { provider: originalProvider } = providerWithResponses([
+    preservedOriginal,
+    whollyUnsafeRepair,
+  ]);
+  const originalsOnly = await originalProvider.extract(
+    { report, urls: [url, second], metadata: {} },
+    sources,
+    options,
+    signal,
+  );
+  assert.equal(originalsOnly.metadata.repair_applied, false);
+  assert.deepEqual(originalsOnly.candidates[0], candidate());
+  assert.equal(
+    originalsOnly.candidates[1].unexpected_wrapper_field,
+    "remove me",
+  );
+  assert.equal(
+    originalProvider.getDiagnostics()[1].repair_validation,
+    "scalar_preservation_failed",
+  );
+  assert.equal(
+    originalProvider.getDiagnostics()[1].repair_scalar_mismatch_count,
+    2,
+  );
+  assert.ok(!JSON.stringify(originalsOnly).includes("Invented"));
 });
 
 test("cancellation and network failures never retry or expose transport details", async () => {

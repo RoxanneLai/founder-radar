@@ -637,70 +637,75 @@ function candidateSourceUrl(value: unknown): string | null {
 }
 
 type RepairScalarCheck = {
-  valid: boolean;
+  candidates: unknown[] | null;
+  appliedCandidateCount: number;
+  usableCandidateCount: number;
   mismatchCount: number | null;
   mismatchPaths: string[] | null;
 };
 
-function canPreserveOriginalCandidates(
-  candidates: unknown[],
-  sources: SourceIdentity[],
-): boolean {
-  if (
-    !candidates.some(
-      (candidate) => candidateSchema.safeParse(candidate).success,
-    )
-  )
-    return false;
-  const expected = new Set(sources.map((source) => source.source_url));
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const url = candidateSourceUrl(candidate);
-    if (!url || !expected.has(url) || seen.has(url)) return false;
-    seen.add(url);
-  }
-  return candidates.length === sources.length && seen.size === expected.size;
-}
-
-/** Valid repaired siblings may rearrange existing scalars, never add facts. */
-function validRepairsPreserveCandidateScalars(
+/** Keep only independently canonical, fact-preserving repaired siblings. */
+function isolateFactPreservingRepairs(
   original: unknown[],
   repaired: unknown[],
 ): RepairScalarCheck {
-  const originals = new Map<string, Set<string>>();
+  const originals = new Map<
+    string,
+    { candidate: unknown; scalars: Set<string> }
+  >();
   for (const candidate of original) {
     const url = candidateSourceUrl(candidate);
     if (!url || originals.has(url))
-      return { valid: false, mismatchCount: null, mismatchPaths: null };
-    originals.set(url, collectScalars(candidate));
+      return {
+        candidates: null,
+        appliedCandidateCount: 0,
+        usableCandidateCount: 0,
+        mismatchCount: null,
+        mismatchPaths: null,
+      };
+    originals.set(url, { candidate, scalars: collectScalars(candidate) });
   }
-  let validCandidates = 0;
+  let appliedCandidateCount = 0;
+  let usableCandidateCount = 0;
   let mismatchCount = 0;
   const mismatchPaths: string[] = [];
+  const candidates: unknown[] = [];
   for (const [index, candidate] of repaired.entries()) {
-    const parsed = candidateSchema.safeParse(candidate);
-    if (!parsed.success) continue;
-    validCandidates += 1;
     const url = candidateSourceUrl(candidate);
-    const allowed = url ? originals.get(url) : null;
-    if (!allowed)
-      return { valid: false, mismatchCount: null, mismatchPaths: null };
+    const originalCandidate = url ? originals.get(url) : null;
+    if (!originalCandidate)
+      return {
+        candidates: null,
+        appliedCandidateCount: 0,
+        usableCandidateCount: 0,
+        mismatchCount: null,
+        mismatchPaths: null,
+      };
+    const parsed = candidateSchema.safeParse(candidate);
+    if (!parsed.success) {
+      candidates.push(originalCandidate.candidate);
+      if (candidateSchema.safeParse(originalCandidate.candidate).success)
+        usableCandidateCount += 1;
+      continue;
+    }
     const clone = structuredClone(parsed.data) as Record<string, unknown>;
     delete clone.source_url;
+    let candidateMismatchCount = 0;
     for (const entry of collectScalarEntries(clone)) {
       const scalar = scalarKey(entry.value);
-      if (allowed.has(scalar)) continue;
+      if (originalCandidate.scalars.has(scalar)) continue;
       if (
         scalar === scalarKey("source_fetch_failed") &&
-        allowed.has(scalarKey("failed_fetch"))
+        originalCandidate.scalars.has(scalarKey("failed_fetch"))
       )
         continue;
       if (
         scalar === scalarKey("source_page_cancelled") &&
-        allowed.has(scalarKey("cancelled"))
+        originalCandidate.scalars.has(scalarKey("cancelled"))
       )
         continue;
       mismatchCount += 1;
+      candidateMismatchCount += 1;
       const path = `candidates[${index}].${entry.path}`;
       if (
         mismatchPaths.length < MAX_REPAIR_MISMATCH_PATHS &&
@@ -708,9 +713,20 @@ function validRepairsPreserveCandidateScalars(
       )
         mismatchPaths.push(path);
     }
+    if (candidateMismatchCount) {
+      candidates.push(originalCandidate.candidate);
+      if (candidateSchema.safeParse(originalCandidate.candidate).success)
+        usableCandidateCount += 1;
+    } else {
+      candidates.push(candidate);
+      appliedCandidateCount += 1;
+      usableCandidateCount += 1;
+    }
   }
   return {
-    valid: validCandidates > 0 && mismatchCount === 0,
+    candidates,
+    appliedCandidateCount,
+    usableCandidateCount,
     mismatchCount,
     mismatchPaths,
   };
@@ -979,39 +995,29 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       diagnostic.repair_validation = "invalid_coverage";
       throw new IngestionError("invalid_repair_output");
     }
-    const scalarCheck = validRepairsPreserveCandidateScalars(
-      original,
-      candidates,
-    );
+    const scalarCheck = isolateFactPreservingRepairs(original, candidates);
     diagnostic.repair_scalar_mismatch_count = scalarCheck.mismatchCount;
     diagnostic.repair_scalar_mismatch_paths = scalarCheck.mismatchPaths;
-    if (!scalarCheck.valid) {
+    if (!scalarCheck.candidates || !scalarCheck.usableCandidateCount) {
       diagnostic.repair_validation = "scalar_preservation_failed";
-      if (canPreserveOriginalCandidates(original, sources))
-        return {
-          candidates: original,
-          metadata: routerMetadata(
-            response,
-            this.repairModel,
-            this.repairEffort,
-            diagnostic,
-          ) as Record<string, Json>,
-          applied: false,
-        };
       throw new IngestionError("invalid_repair_output");
     }
-    diagnostic.repair_validation = coverage.complete
-      ? "accepted"
-      : "accepted_partial";
+    const applied = scalarCheck.appliedCandidateCount > 0;
+    diagnostic.repair_validation =
+      coverage.complete && scalarCheck.mismatchCount === 0
+        ? "accepted"
+        : applied
+          ? "accepted_partial"
+          : "scalar_preservation_failed";
     return {
-      candidates,
+      candidates: scalarCheck.candidates,
       metadata: routerMetadata(
         response,
         this.repairModel,
         this.repairEffort,
         diagnostic,
       ) as Record<string, Json>,
-      applied: true,
+      applied,
     };
   }
 
