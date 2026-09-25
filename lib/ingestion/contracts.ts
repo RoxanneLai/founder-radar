@@ -213,7 +213,11 @@ export type ProviderDiagnostic = {
 
 export interface DiscoveryProvider {
   getDiagnostics?(): ProviderDiagnostic[];
-  research(options: SearchOptions, signal: AbortSignal): Promise<Research>;
+  research(
+    options: SearchOptions,
+    signal: AbortSignal,
+    excludedSourceUrls?: string[],
+  ): Promise<Research>;
   extract(
     research: Research,
     sources: SourceIdentity[],
@@ -250,6 +254,10 @@ export type RunSummary = {
 
 export interface IngestionRepository {
   start(options: SearchOptions): Promise<string>;
+  listRecentCancelledSourceUrls(
+    since: string,
+    limit: number,
+  ): Promise<string[]>;
   checkpoint(runId: string, metadata: Json): Promise<void>;
   save(
     runId: string,

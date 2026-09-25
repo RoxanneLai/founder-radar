@@ -11,7 +11,12 @@ import type {
   SearchOptions,
   SourceIdentity,
 } from "./contracts.ts";
-import { ALLOWED_DOMAINS, sourceIdentity } from "./sources.ts";
+import {
+  ALLOWED_DOMAINS,
+  MAX_RESEARCH_EXCLUSIONS,
+  selectSources,
+  sourceIdentity,
+} from "./sources.ts";
 import { IngestionError } from "./errors.ts";
 import {
   EXTRACTION_INSTRUCTIONS,
@@ -47,6 +52,7 @@ export const API_LIMITS = {
   requestTimeoutMs: 120000,
   reportCharacters: 40000,
   responseBytes: 1048576,
+  researchExcludedSources: MAX_RESEARCH_EXCLUSIONS,
 } as const;
 
 const MAX_REPAIR_MISMATCH_PATHS = 32;
@@ -976,13 +982,21 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
   async research(
     options: SearchOptions,
     signal: AbortSignal,
+    excludedSourceUrls: string[] = [],
   ): Promise<Research> {
+    const safeExcludedSourceUrls = selectSources(
+      excludedSourceUrls,
+      API_LIMITS.researchExcludedSources,
+    ).map((source) => source.source_url);
     const response = await this.request(
       "research",
       {
         messages: [
           { role: "system", content: RESEARCH_INSTRUCTIONS },
-          { role: "user", content: researchInput(options) },
+          {
+            role: "user",
+            content: researchInput(options, safeExcludedSourceUrls),
+          },
         ],
         tools: [
           {

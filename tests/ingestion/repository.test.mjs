@@ -24,14 +24,18 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
             method: init.method,
             body: init.body ? JSON.parse(init.body) : null,
           });
-          const value = requestUrl.includes("/rpc/")
-            ? {
-                source_id: "source-test",
-                event_id: null,
-                source_created: true,
-                event_written: false,
-              }
-            : { id: "run-test" };
+          const value = requestUrl.includes(
+            "last_attempt_error=eq.source_page_cancelled",
+          )
+            ? [{ source_url: url }]
+            : requestUrl.includes("/rpc/")
+              ? {
+                  source_id: "source-test",
+                  event_id: null,
+                  source_created: true,
+                  event_written: false,
+                }
+              : { id: "run-test" };
           return new Response(JSON.stringify(value), {
             headers: { "content-type": "application/json" },
           });
@@ -47,6 +51,11 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
     "none",
   );
   const id = await repo.start(options);
+  const excluded = await repo.listRecentCancelledSourceUrls(
+    "2026-06-03T12:00:00.000Z",
+    50,
+  );
+  assert.deepEqual(excluded, [url]);
   await repo.checkpoint(id, { phase: "research" });
   const saved = await repo.save(
     id,
@@ -75,11 +84,14 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
     "qwen/qwen3.5-27b",
   );
   assert.equal(calls[1].body.search_parameters.repair_effort, "none");
-  assert.match(calls[3].url, /\/rest\/v1\/rpc\/ingest_event_source/);
-  assert.equal(calls[3].body.p_event, null);
-  assert.equal(calls[3].body.p_run_id, id);
-  assert.equal(calls[4].body.status, "succeeded");
-  assert.match(calls[4].url, /status=eq.running/);
+  assert.match(calls[2].url, /event_id=is.null/);
+  assert.match(calls[2].url, /last_attempt_error=eq.source_page_cancelled/);
+  assert.match(calls[2].url, /limit=50/);
+  assert.match(calls[4].url, /\/rest\/v1\/rpc\/ingest_event_source/);
+  assert.equal(calls[4].body.p_event, null);
+  assert.equal(calls[4].body.p_run_id, id);
+  assert.equal(calls[5].body.status, "succeeded");
+  assert.match(calls[5].url, /status=eq.running/);
 
   const runId = "10000000-0000-4000-8000-000000000001";
   const sourceId = "20000000-0000-4000-8000-000000000001";

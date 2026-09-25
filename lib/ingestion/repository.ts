@@ -96,6 +96,23 @@ export class SupabaseIngestionRepository implements IngestionRepository {
     return data.id;
   }
 
+  async listRecentCancelledSourceUrls(
+    since: string,
+    limit: number,
+  ): Promise<string[]> {
+    const { data, error } = await this.client
+      .from("event_sources")
+      .select("source_url")
+      .is("event_id", null)
+      .eq("last_attempt_error", "source_page_cancelled")
+      .gte("last_attempt_at", since)
+      .order("last_attempt_at", { ascending: false })
+      .limit(limit);
+    if (error || data === null)
+      throw new IngestionError("source_exclusion_read_failed");
+    return data.map((row) => row.source_url);
+  }
+
   async checkpoint(runId: string, metadata: Json): Promise<void> {
     const { data, error } = await this.client
       .from("search_runs")

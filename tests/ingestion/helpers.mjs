@@ -57,6 +57,20 @@ export function memoryRepository() {
       runs.push({ id, search });
       return id;
     },
+    async listRecentCancelledSourceUrls(since, limit) {
+      return [...sources.entries()]
+        .filter(
+          ([, source]) =>
+            source.event_id === null &&
+            source.last_attempt_error === "source_page_cancelled" &&
+            source.last_attempt_at >= since,
+        )
+        .sort((left, right) =>
+          right[1].last_attempt_at.localeCompare(left[1].last_attempt_at),
+        )
+        .slice(0, limit)
+        .map(([sourceUrl]) => sourceUrl);
+    },
     async checkpoint(id, metadata) {
       runs.find((run) => run.id === id).metadata = structuredClone(metadata);
     },
@@ -69,6 +83,7 @@ export function memoryRepository() {
         event_id: null,
       };
       record.last_seen_at = time;
+      record.last_attempt_at = time;
       record.last_attempt_error = source.error_code ?? null;
       if (source.content_text && !source.error_code) {
         Object.assign(record, source, { fetched_at: time });

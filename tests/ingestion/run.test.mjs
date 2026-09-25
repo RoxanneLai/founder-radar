@@ -8,6 +8,7 @@ import {
   fakeProvider,
   memoryRepository,
   options,
+  report,
   url,
 } from "./helpers.mjs";
 
@@ -103,7 +104,7 @@ test("duplicate model candidates and uncited URLs cannot create events", async (
   assert.ok(result.errors.includes("untrusted_candidate_url"));
 });
 
-test("zero candidates finishes cleanly without making an extraction call", async () => {
+test("zero or previously cancelled candidates finish without unsafe extraction", async () => {
   const provider = fakeProvider([], []);
   provider.extract = async () => {
     assert.fail("unexpected extraction call");
@@ -114,6 +115,45 @@ test("zero candidates finishes cleanly without making an extraction call", async
   );
   assert.equal(result.status, "succeeded");
   assert.equal(result.sources_discovered, 0);
+
+  const cancelledRepo = memoryRepository();
+  cancelledRepo.sources.set(url, {
+    id: "source-cancelled",
+    event_id: null,
+    first_seen_at: "2026-08-31T12:00:00.000Z",
+    last_seen_at: "2026-08-31T12:00:00.000Z",
+    last_attempt_at: "2026-08-31T12:00:00.000Z",
+    last_attempt_error: "source_page_cancelled",
+  });
+  const second = "https://luma.com/second";
+  let receivedExclusions = null;
+  const filteredProvider = fakeProvider([candidate(second)], [url, second]);
+  filteredProvider.research = async (_options, _signal, exclusions) => {
+    receivedExclusions = exclusions;
+    return {
+      report,
+      urls: [url, second],
+      metadata: { response_id: "research-filter-test" },
+    };
+  };
+  filteredProvider.extract = async (_research, sources) => {
+    assert.deepEqual(
+      sources.map((source) => source.source_url),
+      [second],
+    );
+    return {
+      candidates: [candidate(second)],
+      metadata: { response_id: "extraction-filter-test" },
+    };
+  };
+  const filtered = await runIngestion(
+    options,
+    dependencies(cancelledRepo, filteredProvider),
+  );
+  assert.deepEqual(receivedExclusions, [url]);
+  assert.equal(filtered.sources_discovered, 1);
+  assert.equal(filtered.events_written, 1);
+  assert.equal(cancelledRepo.runs[0].metadata.excluded_source_count, 1);
 });
 
 test("provider failure closes the run with safe diagnostics, never raw secrets", async () => {
@@ -156,6 +196,18 @@ test("database start failure prevents paid requests; finish failure surfaces", a
     runIngestion(options, dependencies(repo, provider)),
     /run_start_failed/,
   );
+  const exclusionFailure = memoryRepository();
+  exclusionFailure.listRecentCancelledSourceUrls = async () => {
+    throw new IngestionError("source_exclusion_read_failed");
+  };
+  const noResearch = fakeProvider();
+  noResearch.research = async () => assert.fail("research must not run");
+  const exclusionResult = await runIngestion(
+    options,
+    dependencies(exclusionFailure, noResearch),
+  );
+  assert.equal(exclusionResult.status, "failed");
+  assert.deepEqual(exclusionResult.errors, ["source_exclusion_read_failed"]);
   const other = memoryRepository();
   other.finish = async () => {
     throw new IngestionError("run_finish_failed");

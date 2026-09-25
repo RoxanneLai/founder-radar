@@ -131,12 +131,12 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                            |
 | Live checkpoint underway | OpenRouter discovery, source verification, captured-response import, optional bounded schema repair, and tests    |
-| Next                     | Manually verify the two imported drafts, then repeat one fresh-window run before publication                      |
+| Next                     | Merge cancelled-source discovery exclusions, then repeat one fresh-window run before publication                  |
 | Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
 | Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
 | Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation |
 
-The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Two captured-response candidates have now passed current-time validation and entered the local review queue without publication or another paid request. Configure the host dashboard using its guide; one new current-window acceptance run remains the next live-data gate. Real event collection does not depend on finishing AI scoring first.
+The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Two captured-response candidates passed current-time validation and entered the local review queue without publication or another paid request. A subsequent fresh run safely rejected a previously known cancellation but found no other listing; the next retry will exclude recent unlinked cancellations before paid research. Configure the host dashboard using its guide; one useful current-window acceptance run remains the next live-data gate. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
 

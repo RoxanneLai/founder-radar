@@ -14,7 +14,14 @@ import type {
 import { IngestionError, errorCode } from "./errors.ts";
 import { normalizeCandidate } from "./normalize.ts";
 import { validateSearchOptions } from "./options.ts";
-import { selectSources, sourceIdentity } from "./sources.ts";
+import {
+  MAX_RESEARCH_EXCLUSIONS,
+  selectSources,
+  sourceIdentity,
+} from "./sources.ts";
+
+const CANCELLED_SOURCE_EXCLUSION_DAYS = 90;
+const DAY_MS = 86400000;
 
 type Dependencies = {
   provider: DiscoveryProvider;
@@ -233,10 +240,30 @@ async function collectAndPersist(
   context: RunContext,
   deps: Dependencies,
 ): Promise<void> {
-  const research = await deps.provider.research(context.options, deps.signal);
+  const exclusionReference = (deps.now ?? (() => new Date()))();
+  const exclusionSince = new Date(
+    exclusionReference.getTime() - CANCELLED_SOURCE_EXCLUSION_DAYS * DAY_MS,
+  ).toISOString();
+  const excludedSourceUrls = selectSources(
+    await deps.repository.listRecentCancelledSourceUrls(
+      exclusionSince,
+      MAX_RESEARCH_EXCLUSIONS,
+    ),
+    MAX_RESEARCH_EXCLUSIONS,
+  ).map((source) => source.source_url);
+  context.metadata.excluded_source_count = excludedSourceUrls.length;
+  const research = await deps.provider.research(
+    context.options,
+    deps.signal,
+    excludedSourceUrls,
+  );
   checkCancellation(deps.signal);
   context.observedAt = (deps.now ?? (() => new Date()))().toISOString();
-  const sources = selectSources(research.urls, context.options.limit);
+  const sources = selectSources(
+    research.urls,
+    context.options.limit,
+    excludedSourceUrls,
+  );
   context.summary.sources_discovered = sources.length;
   Object.assign(context.metadata, {
     research: research.metadata,

@@ -6,6 +6,7 @@ export const ALLOWED_DOMAINS = [
   "meetup.com",
   "eventbrite.com",
 ];
+export const MAX_RESEARCH_EXCLUSIONS = 50;
 
 /** Normalize identity only; no HTTP requests are made to model-provided URLs. */
 export function sourceIdentity(value: string): SourceIdentity | null {
@@ -49,16 +50,36 @@ export function sourceIdentity(value: string): SourceIdentity | null {
   }
 }
 
-export function selectSources(urls: string[], limit: number): SourceIdentity[] {
+export function selectSources(
+  urls: string[],
+  limit: number,
+  excludedUrls: string[] = [],
+): SourceIdentity[] {
   const selected = new Map<string, SourceIdentity>();
   const externalIds = new Set<string>();
+  const excludedSources = excludedUrls
+    .map((url) => sourceIdentity(url))
+    .filter((source): source is SourceIdentity => source !== null);
+  const excludedCanonicalUrls = new Set(
+    excludedSources.map((source) => source.source_url),
+  );
+  const excludedExternalIds = new Set(
+    excludedSources
+      .filter((source) => source.external_id !== null)
+      .map((source) => source.source_name + ":" + source.external_id),
+  );
   for (const url of urls) {
     const source = sourceIdentity(url);
     if (!source) continue;
     const id = source.external_id
       ? source.source_name + ":" + source.external_id
       : null;
-    if (selected.has(source.source_url) || (id && externalIds.has(id)))
+    if (
+      excludedCanonicalUrls.has(source.source_url) ||
+      (id && excludedExternalIds.has(id)) ||
+      selected.has(source.source_url) ||
+      (id && externalIds.has(id))
+    )
       continue;
     selected.set(source.source_url, source);
     if (id) externalIds.add(id);

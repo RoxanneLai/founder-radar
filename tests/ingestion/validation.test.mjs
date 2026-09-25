@@ -82,6 +82,20 @@ test("deduplicates source aliases, external IDs and tracking URLs before applyin
     ).length,
     1,
   );
+  assert.deepEqual(
+    selectSources([url + "?utm_source=search", "https://luma.com/second"], 3, [
+      "https://lu.ma/founder-test",
+    ]).map((source) => source.source_url),
+    ["https://luma.com/second"],
+  );
+  assert.deepEqual(
+    selectSources(
+      ["https://meetup.com/new/events/12", "https://meetup.com/new/events/13"],
+      3,
+      ["https://meetup.com/old/events/12"],
+    ).map((source) => source.external_id),
+    ["13"],
+  );
 });
 
 test("normalizes a supported event without adding scores or publication privileges", () => {
