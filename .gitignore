@@ -14,6 +14,12 @@
 /coverage
 /codex-tmp/
 
+# default local SQLite data
+/data/*.sqlite
+/data/*.sqlite-*
+/data/*.db
+/data/*.db-*
+
 # supabase local state
 /supabase/.branches/
 /supabase/.temp/

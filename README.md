@@ -4,15 +4,15 @@
 
 FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
 
-## Current milestone: draft review and publication
+## Current milestone: local-first event pipeline
 
-V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local Postgres foundation, a bounded manually triggered ingestion agent, live draft collection, and a human review boundary. Live runs remain unpublished until explicit approval.
+V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local-first persistence layer, a bounded manually triggered ingestion agent, live draft collection, and a human review boundary. Live runs remain unpublished until explicit approval.
 
-The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from local Supabase. The fictional edition is separately available at `http://localhost:3000/sample`. Missing database configuration, connection errors, and an empty feed have distinct states; they never silently substitute sample events.
+The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from SQLite by default. The fictional edition is separately available at `http://localhost:3000/sample`. Database errors and an empty feed have distinct states; they never silently substitute sample events. Supabase remains available through explicit configuration.
 
-See [the dashboard guide](docs/DASHBOARD.md) for configuration, [the local readiness checkpoint](docs/LOCAL-READINESS.md) for current setup status, and [integration progress](docs/INTEGRATION-PROGRESS.md) for earlier verification. The [ingestion guide](docs/INGESTION.md) covers safe agent startup and the still-pending live acceptance check. The [V1 plan](docs/V1-PLAN.md) describes the wider milestone.
+See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
 
-The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. Apply pending migrations before using this workflow or the updated database-backed dashboard. No real events were published during the [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
+The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. No real events were published during the historical [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
 ### Preview an ingestion run without spending money
 
@@ -20,7 +20,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) now lets an operator i
 npm run ingest -- --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads or database writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a source-complete noncanonical response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in, local database credentials, and a separately approved testing budget. See the ingestion guide before enabling it.
+After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a source-complete noncanonical response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
 
 Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
 
@@ -35,11 +35,17 @@ npm run dev
 
 Open http://localhost:3000.
 
-For database access, configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` as described in the [dashboard guide](docs/DASHBOARD.md). The local stack enables authentication with sign-ups disabled, keeping anonymous dashboard reads separate from privileged ingestion. No service-role key or OpenAI key is needed for page loads. With only the seeded fixtures, the connected home page is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
+No database configuration is needed for the default SQLite dashboard. Its persistent ignored file is created automatically. No service-role key or OpenRouter key is needed for page loads. A new database is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
 
-## Run the local database
+## Storage
 
-Local Supabase requires a Docker-compatible container runtime. Start your runtime (Docker Desktop has been verified for this project), then start the local stack:
+SQLite is the default and needs no separate process. All local workflows use `data/founder-radar.sqlite` unless `SQLITE_DATABASE_PATH` overrides it. Set `DATABASE_BACKEND=supabase` to opt into the retained Supabase implementation; there is no automatic fallback or data transfer.
+
+See [the storage guide](docs/STORAGE.md) before importing, backing up, restoring, or deploying data.
+
+### Optional local Supabase
+
+Local Supabase requires a Docker-compatible container runtime. Start your runtime, then start the optional local stack:
 
 ```bash
 npm run db:start
@@ -53,7 +59,7 @@ To apply newly added migrations without resetting existing data, run `npm run db
 
 After changing local service configuration, use `npm run db:stop` followed by `npm run db:start`. The default stop preserves local data; never add `--no-backup`. Authentication is enabled for local API credentials, not for a public login or sign-up feature. `npm run db:status` displays local credentials: keep that output private and use only the anonymous/public key for the dashboard.
 
-The database is reproducible from committed files:
+The Supabase database is reproducible from committed files:
 
 | Path                       | Responsibility                                          |
 | -------------------------- | ------------------------------------------------------- |
@@ -90,18 +96,19 @@ This preserves the latest source snapshot and its original discovery-run attribu
 
 ## Application architecture
 
-| File                       | Responsibility                                                                    |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| `lib/types.ts`             | Original fixture contract and shared categories                                   |
-| `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                                |
-| `lib/dashboard/`           | Anonymous server-only reads, validation, public card contract, and sample adapter |
-| `lib/review/`              | Local operator CLI, evidence review, public preview, and explicit publication     |
-| `lib/events.ts`            | Deterministic ranking, score bands, and formatting                                |
-| `components/EventCard.tsx` | Event presentation                                                                |
-| `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                     |
-| `app/page.tsx`             | Request-time published event feed                                                 |
-| `app/sample/page.tsx`      | Separate static fictional edition                                                 |
-| `supabase/`                | V1 persistence, provenance, seed data, and database tests                         |
+| File                       | Responsibility                                                                |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `lib/types.ts`             | Original fixture contract and shared categories                               |
+| `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                            |
+| `lib/dashboard/`           | Server-only reads, validation, public card contract, and sample adapter       |
+| `lib/storage/`             | Backend selection, SQLite schema, and explicit Supabase import                |
+| `lib/review/`              | Local operator CLI, evidence review, public preview, and explicit publication |
+| `lib/events.ts`            | Deterministic ranking, score bands, and formatting                            |
+| `components/EventCard.tsx` | Event presentation                                                            |
+| `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                 |
+| `app/page.tsx`             | Request-time published event feed                                             |
+| `app/sample/page.tsx`      | Separate static fictional edition                                             |
+| `supabase/`                | Optional Postgres persistence, provenance, seed data, and database tests      |
 
 The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. Ingestion remains separate from the read-only dashboard; page loads never make paid API calls.
 
@@ -116,7 +123,7 @@ npm run test:next
 npm run test:next:runtime
 ```
 
-Run `build` before the two production checks. `test:next:runtime` uses only synthetic HTTP responses and temporary local ports; it needs permission to start local servers. Database checks require the local Supabase stack.
+Run `build` before the two production checks. `test:next:runtime` uses only synthetic HTTP responses and temporary local ports; it needs permission to start local servers. The normal suite exercises SQLite with isolated ignored temporary files. The following optional Postgres checks require local Supabase:
 
 ```bash
 npm run db:test

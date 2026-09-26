@@ -12,6 +12,34 @@ import type {
   SearchOptions,
 } from "./contracts.ts";
 import { IngestionError } from "./errors.ts";
+import { SqliteIngestionRepository } from "./sqlite-repository.ts";
+
+export function createConfiguredIngestionRepository(
+  config:
+    | { backend: "sqlite"; path: string }
+    | { backend: "supabase"; supabaseUrl: string; serviceRoleKey: string },
+  model: string,
+  effort: ReasoningEffort,
+  repairModel: string,
+  repairEffort: ReasoningEffort,
+): IngestionRepository {
+  if (config.backend === "sqlite")
+    return new SqliteIngestionRepository(
+      config.path,
+      model,
+      effort,
+      repairModel,
+      repairEffort,
+    );
+  return createIngestionRepository(
+    config.supabaseUrl,
+    config.serviceRoleKey,
+    model,
+    effort,
+    repairModel,
+    repairEffort,
+  );
+}
 
 export function createIngestionRepository(
   url: string,

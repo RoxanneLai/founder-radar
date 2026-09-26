@@ -17,6 +17,8 @@ let delay = 0;
 let databaseCalls = 0;
 let lastDatabaseHeaders;
 const originalEnv = {
+  DATABASE_BACKEND: process.env.DATABASE_BACKEND,
+  SQLITE_DATABASE_PATH: process.env.SQLITE_DATABASE_PATH,
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
 };
@@ -74,6 +76,8 @@ before(
       );
     });
     databaseUrl = await listen(databaseServer);
+    process.env.DATABASE_BACKEND = "supabase";
+    delete process.env.SQLITE_DATABASE_PATH;
     process.env.SUPABASE_URL = databaseUrl;
     process.env.SUPABASE_ANON_KEY = fakeKey();
     app = next({ dev: false, dir: process.cwd() });

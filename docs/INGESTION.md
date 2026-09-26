@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not modify the dashboard, publish events, compute scores, run on a schedule, or register for events. The previous direct OpenAI transport has been replaced; historical run records and checkpoints are unchanged.
+The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. SQLite is the default; local Supabase remains an explicit option. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not publish events, compute scores, run on a schedule, or register for events.
 
 **Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** Fresh-window acceptance run `ac1a1fe3-84d5-4e76-b204-67dcd3f87781` refreshed three exact source identities but wrote no drafts because one changed repair scalar rejected the otherwise canonical batch. Repair isolation is now candidate-specific offline: safe canonical repaired siblings continue, a scalar-changing or malformed sibling reverts to its unchanged original input, and only the unusable sibling remains source-only. Invented repair values are never returned.
 
@@ -21,7 +21,7 @@ The implementation is a manually triggered ingestion command using **OpenRouter*
 10. Validate title, date/time zone, relevance, city, format, date window, and that the event starts after the actual observation time. Save usable candidates as drafts; retain rejected or incomplete sources with a diagnostic code.
 11. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
 
-The provider adapter never writes to the database. The repository owns persistence through one transactional RPC, `ingest_event_source`. Concurrent saves of the same provider URL or external ID reuse a source and event. Original `first_seen_at` and discovery-run attribution are retained.
+The provider adapter never writes to the database. The selected repository owns transactional persistence: SQLite uses a local immediate transaction and Supabase uses `ingest_event_source`. Concurrent saves of the same provider URL or external ID reuse a source and event. Original `first_seen_at` and discovery-run attribution are retained.
 
 ### Evidence is not a page archive
 
@@ -41,6 +41,8 @@ npm run ingest -- --limit 3
 ```
 
 Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, proposed search, and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
+
+Plan mode also does not create or open SQLite and does not read `DATABASE_BACKEND`, `SQLITE_DATABASE_PATH`, or Supabase credentials.
 
 ## Select the backend model and effort
 
@@ -88,20 +90,17 @@ Replace these example dates when they are no longer current. The start is inclus
 ## Prepare live mode
 
 1. Review the plan's primary and repair model/effort pairs and agree on a small **separate OpenRouter testing budget**, including hosted search, reasoning output, optional repair, and other model usage. Supplying a key does not itself authorize a live run.
-2. Start Docker Desktop and the local stack with `npm run db:start`.
-3. Apply pending local migrations using `npm run db:migrate`. This adds the ingestion RPC and attempt-diagnostic columns without resetting data. Do not use `db:reset` on a database containing data you want to keep.
-   The local configuration now enables authentication with sign-ups disabled. After upgrading from the old auth-disabled setup, use `npm run db:stop` then `npm run db:start` to activate it without deleting data. Obtain the local service-role key from `npm run db:status` in your own Terminal; keep the output private. The dashboard uses a different, anonymous/public key.
-4. Supply `OPENROUTER.key` as described above and the following server-side environment variables in the terminal where the command will run:
+2. Choose the database. The default SQLite file is initialized automatically and needs no credentials. If you override `SQLITE_DATABASE_PATH`, use the same value for ingestion, inspection, review, and the dashboard.
+3. Supply `OPENROUTER.key` as described above and enable paid calls in the terminal where the command will run:
 
-| Variable                       | Purpose                                                             |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `SUPABASE_URL`                 | The local API endpoint, normally `http://127.0.0.1:54321`           |
-| `SUPABASE_SERVICE_ROLE_KEY`    | The local stack's service-role key; never a browser/public variable |
-| `FOUNDER_RADAR_ALLOW_PAID_API` | Must be exactly `1` in addition to the `--live` flag                |
+| Variable                       | Purpose                                              |
+| ------------------------------ | ---------------------------------------------------- |
+| `FOUNDER_RADAR_ALLOW_PAID_API` | Must be exactly `1` in addition to the `--live` flag |
+| `SQLITE_DATABASE_PATH`         | Optional override for the persistent local file      |
 
-The command reads model configuration and `OPENROUTER.key` separately from these environment variables; it does **not** automatically load `.env` or `.env.local`. Use your preferred secure environment/secret manager for database credentials. Do not put credentials in source files, command-line arguments, progress notes, or chat. Do not prefix private keys with `NEXT_PUBLIC_`. Only loopback HTTP database URLs with an explicit port are accepted in this version.
+To retain the Supabase workflow, set `DATABASE_BACKEND=supabase`, start Docker and the local stack, apply migrations, and supply the local `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Only loopback HTTP database URLs with an explicit port are accepted. See [STORAGE.md](STORAGE.md). The command does **not** automatically load `.env` or `.env.local`. Do not put credentials in source files, command-line arguments, progress notes, or chat.
 
-5. After the budget and credentials are ready, run the same bounded command with `--live`:
+4. After the budget and credentials are ready, run the same bounded command with `--live`:
 
 ```bash
 npm run ingest -- --live --limit 3
@@ -154,6 +153,10 @@ npm run test:next
 
 `db:test:isolated` requires the existing local Supabase Docker container. It creates a uniquely named disposable database, applies all migrations and fixture seeds, runs every pgTAP contract plus review/concurrency tests, and drops only that disposable database afterward. It does not reset the user's normal database. If forcibly interrupted, it may leave a database beginning with `fr_review_test_`; inspect before removing it.
 
+### SQLite-default checkpoint — September 26, 2026
+
+Formatting, lint, TypeScript, and all 100 normal offline tests pass. The optional Supabase suite also passes: 145 pgTAP assertions plus five isolated runner tests, including the real Supabase review CLI. The production build, two built-output checks, seven runtime dashboard checks, and a credential-free fresh SQLite production-server smoke check pass. The build ran from an ignored clean copy because the app sandbox could not remove an older `.next/diagnostics` directory in the working checkout; that filesystem limitation is unrelated to the source or build output. No paid request or existing database write was made.
+
 ### OpenRouter implementation checkpoint — September 2, 2026
 
 Lint, TypeScript, formatting, all 71 offline tests (including 39 ingestion tests), and the isolated database suite (145 assertions plus five runner tests) passed. Offline tests ran in a disposable Docker container with networking disabled because host-sandbox cleanup of test directories failed with `EPERM`, even with approval. All credentials and API responses in those tests were synthetic. The production build and both built-output tests passed in a credential-free copy under `codex-tmp/openrouter-release.EY061I`, leaving the active dashboard build untouched; Next.js reported the expected nested-workspace lockfile warning.
@@ -172,7 +175,7 @@ Inspect any saved local run without reading a key, making a paid request, or wri
 npm run ingest:inspect -- --run RUN_UUID
 ```
 
-The inspector requires the local Supabase Docker stack. It uses a read-only transaction and reports the run's parameters, safe provider diagnostics, provider-reported usage totals, and current identities/linkage for at most 50 sources. It never returns research text, source content, raw payloads, credentials, prompts, or reasoning traces. A source touched by a later run reflects its current linkage and last-attempt state, not a historical snapshot.
+The inspector reads the selected backend and reports the run's parameters, safe provider diagnostics, provider-reported usage totals, and current identities/linkage for at most 50 sources. SQLite needs no Docker; Supabase inspection uses a read-only local Docker transaction. It never returns research text, source content, raw payloads, credentials, prompts, or reasoning traces. A source touched by a later run reflects its current linkage and last-attempt state, not a historical snapshot.
 
 ### Safe diagnostics for rejected responses
 
@@ -249,7 +252,8 @@ Common codes:
 | `invalid_repair_json` / `invalid_repair_output`            | Repair failed and no original or fact-preserving sibling could safely continue; do not retry           |
 | `repair_input_too_large` / `unexpected_repair_tools`       | The candidate blob exceeded its bound or repair reported tool use; inspect compatibility               |
 | `provider_diagnostics_unavailable`                         | The diagnostic snapshot could not be read; inspect the run's other safe errors before retrying         |
-| `local_database_required`                                  | Use the local stack, not a hosted project                                                              |
+| `invalid_database_configuration`                           | Select `sqlite` or `supabase` and provide a valid SQLite path                                          |
+| `local_database_required`                                  | Supabase mode accepts only the local stack, not a hosted project                                       |
 | `ingestion_migration_required`                             | Apply the pending local migration                                                                      |
 | `ingestion_preflight_failed`                               | Check the local stack, service-role access, and pending migration before any API spend                 |
 | `source_exclusion_read_failed`                             | Check local source-read access; the run stops before research rather than omitting known cancellations |

@@ -2,18 +2,30 @@
 
 ## What changed
 
-The main route (`/`) now reads the local database at request time. The original fictional edition has moved to `/sample`, with clear labels, no registration links, and indexing disabled. There is no automatic sample fallback when the database is empty, unavailable, or unconfigured.
+The main route (`/`) reads the selected local database at request time. SQLite is the default; Supabase remains optional. The original fictional edition is at `/sample`, with clear labels, no registration links, and indexing disabled. There is no automatic sample fallback when the database is empty or unavailable.
 
 Page loads never run the ingestion agent, call OpenAI, calculate scores, publish drafts, or write to the database.
 
-## Connect the local database
+## Start with SQLite
+
+No database credentials or separate server are required:
+
+```bash
+npm ci
+npm run dev
+```
+
+The first request creates the ignored `data/founder-radar.sqlite` database and schema. Use `SQLITE_DATABASE_PATH` to choose another persistent private file. Dashboard, ingestion, run inspection, and review must use the same value. See [STORAGE.md](STORAGE.md) for backups and deployment limits.
+
+## Optional Supabase dashboard
 
 1. Keep Docker Desktop running and use `npm run db:start` for ordinary startup. Do **not** reset existing data.
    Apply pending migrations with `npm run db:migrate` after reviewing them. The reviewed-link addition requires `20260902061000`; without its new column, the updated feed returns its safe unavailable state.
 2. In your regular Terminal, run `npm run db:status` to find the local API URL and anonymous/public key. Keep the output private: it also includes privileged credentials. If upgrading from the earlier auth-disabled configuration, run `npm run db:stop` followed by `npm run db:start` first; do not use `--no-backup` or reset the database.
-3. Set the following values in your own ignored `.env.local`, or export them in the Terminal used to start Next.js. Replace the placeholder with the local anonymous/public key, never the service-role/secret key:
+3. Set the explicit backend plus the following values in your own ignored `.env.local`, or export them in the Terminal used to start Next.js. Replace the placeholder with the local anonymous/public key, never the service-role/secret key:
 
    ```dotenv
+   DATABASE_BACKEND=supabase
    SUPABASE_URL=http://127.0.0.1:54321
    SUPABASE_ANON_KEY=<local-anonymous-or-publishable-key>
    ```
@@ -30,13 +42,13 @@ With the existing six seeded fixtures and no published real events, the connecte
 
 ## Public-read rules
 
-- Read only `events`, using a fresh anonymous Supabase client with session storage disabled. Never query or join `event_sources` or `search_runs` from a page.
+- Read only `events`. SQLite uses a server-only bounded query; Supabase uses a fresh anonymous client with session storage disabled. Never query or join `event_sources` or `search_runs` from a page.
 - Select only the columns needed to validate and render cards. Raw source evidence, diagnostics, internal timestamps, and scoring implementation metadata are not passed into the card model.
 - Filter to `publication_status = published` and `is_fixture = false`. Row-level security independently prevents anonymous and authenticated readers from reading drafts or archives, and denies writes.
 - Show in-person or hybrid events in New York, NY, US, using `America/New_York`, starting from the request time up to (but not including) 30 days later. Cancelled events are excluded. Already-started and past events are excluded.
 - Rank saved networking scores highest first, with null scores last, then start time and stable ID. Zero is a valid score, not an unknown value.
 - Display at most 50 events. A 51st row is used only to indicate that the list is capped. There is no pagination in this increment.
-- Disable caching and automatic database retries. Each page load makes at most one database request, with an eight-second timeout. A new request sees database changes rather than a build-time snapshot.
+- Disable caching and automatic database retries. Supabase reads have an eight-second timeout. SQLite uses a bounded lock wait and WAL concurrency. A new request sees database changes rather than a build-time snapshot.
 - Validate returned rows and recheck visibility before creating public card objects. Malformed required fields produce a safe unavailable state. Blank optional text becomes unknown.
 
 The fixture rows remain publicly readable under the existing database policy; they are explicitly excluded from the main application's query and defensive projection. `/sample` uses the original local fixture module, not those database rows.

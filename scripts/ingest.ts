@@ -10,7 +10,7 @@ import {
   API_LIMITS,
   createOpenRouterProvider,
 } from "../lib/ingestion/openrouter-provider.ts";
-import { createIngestionRepository } from "../lib/ingestion/repository.ts";
+import { createConfiguredIngestionRepository } from "../lib/ingestion/repository.ts";
 import { runIngestion } from "../lib/ingestion/run.ts";
 import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
 import type {
@@ -84,9 +84,8 @@ async function executeLive(
         repairModel,
         repairEffort,
       ),
-      repository: createIngestionRepository(
-        config.supabaseUrl,
-        config.serviceRoleKey,
+      repository: createConfiguredIngestionRepository(
+        config,
         model,
         effort,
         repairModel,

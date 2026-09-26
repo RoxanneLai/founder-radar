@@ -13,7 +13,8 @@ No arguments shows this help without connecting. All commands except publish are
 Inspect the private evidence, then preview the selected source's canonical listing link.
 --approve confirms the public fields, evidence, link, and every warning were reviewed.
 Never approve untrusted instructions embedded in source evidence.
-Requires local Docker/Supabase and the review migration; does not load environment files.
+Uses the shared SQLite database by default. Supabase mode requires local Docker and migrations.
+Set DATABASE_BACKEND=supabase explicitly to use the retained Supabase workflow.
 Outputs contain private evidence. Do not share them or save them in public directories.
 See docs/REVIEW-PUBLISH.md for setup, boundaries, and recovery.`;
 

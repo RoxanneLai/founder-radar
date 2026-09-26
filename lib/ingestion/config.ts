@@ -1,15 +1,22 @@
 import "server-only";
+import { readDatabaseSelection } from "../storage/config.ts";
 import { IngestionError } from "./errors.ts";
 
-export type IngestionConfig = {
-  supabaseUrl: string;
-  serviceRoleKey: string;
-};
+export type IngestionConfig =
+  | { backend: "sqlite"; path: string }
+  | { backend: "supabase"; supabaseUrl: string; serviceRoleKey: string };
 
 /** Secrets come only from the caller's environment, never from browser variables. */
 export function readIngestionConfig(env: NodeJS.ProcessEnv): IngestionConfig {
   if (env.FOUNDER_RADAR_ALLOW_PAID_API !== "1")
     throw new IngestionError("paid_api_not_enabled");
+  let selection;
+  try {
+    selection = readDatabaseSelection(env);
+  } catch {
+    throw new IngestionError("invalid_database_configuration");
+  }
+  if (selection.backend === "sqlite") return selection;
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   const supabaseUrl = env.SUPABASE_URL?.trim();
   if (!serviceRoleKey || !supabaseUrl)
@@ -32,5 +39,5 @@ export function readIngestionConfig(env: NodeJS.ProcessEnv): IngestionConfig {
   ) {
     throw new IngestionError("local_database_required");
   }
-  return { serviceRoleKey, supabaseUrl: url.origin };
+  return { backend: "supabase", serviceRoleKey, supabaseUrl: url.origin };
 }

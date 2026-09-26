@@ -1,6 +1,8 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../database.types.ts";
+import { readDatabaseSelection } from "../storage/config.ts";
+import { openSqliteDatabase, parseJson } from "../storage/sqlite.ts";
 import { readDashboardConfig } from "./config.ts";
 import {
   DASHBOARD_LIMIT,
@@ -13,6 +15,101 @@ import type { DashboardResult } from "./types.ts";
 export const PUBLIC_EVENT_COLUMNS =
   "id,title,organizer_name,starts_at,ends_at,time_zone,venue_name,neighborhood,borough,city,region,country_code,event_format,categories,price_amount_cents,currency_code,registration_status,publication_status,is_fixture,founder_score,investor_score,networking_score,recommendation,potential_downside,public_registration_url";
 
+function resultFromRows(rows: unknown, now: Date): DashboardResult {
+  const events = normalizePublishedEvents(rows, now);
+  if (events.length === 0)
+    return { status: "empty", events: [], hasMore: false };
+  return {
+    status: "ready",
+    events: events.slice(0, DASHBOARD_LIMIT),
+    hasMore: events.length > DASHBOARD_LIMIT,
+  };
+}
+
+function loadSqliteDashboard(path: string, now: Date): DashboardResult {
+  const window = dashboardWindow(now);
+  const database = openSqliteDatabase(path);
+  try {
+    const rows = database
+      .prepare(
+        `select ${PUBLIC_EVENT_COLUMNS} from events
+         where publication_status = 'published' and is_fixture = 0
+         and city = 'New York' and region = 'NY' and country_code = 'US'
+         and time_zone = 'America/New_York' and event_format in ('in-person','hybrid')
+         and registration_status <> 'cancelled'
+         and julianday(starts_at) >= julianday(?) and julianday(starts_at) < julianday(?)
+         order by networking_score desc nulls last, julianday(starts_at) asc, id asc limit ?`,
+      )
+      .all(window.start, window.end, DASHBOARD_LIMIT + 1)
+      .map((row) => ({
+        ...row,
+        categories: parseJson(row.categories),
+        is_fixture: row.is_fixture === 1,
+      }));
+    return resultFromRows(rows, now);
+  } finally {
+    database.close();
+  }
+}
+
+async function loadSupabaseDashboard(
+  env: NodeJS.ProcessEnv,
+  now: Date,
+  fetcher: typeof globalThis.fetch,
+): Promise<DashboardResult> {
+  const config = readDashboardConfig(env);
+  if (!config) return { status: "unconfigured", events: [], hasMore: false };
+  const window = dashboardWindow(now);
+  const client = createClient<Database>(
+    config.url,
+    config.anonKey ?? "local-anonymous",
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+      global: {
+        fetch: (input, init) => {
+          const headers = new Headers(init?.headers);
+          if (!config.anonKey) {
+            headers.delete("authorization");
+            headers.delete("apikey");
+          }
+          return fetcher(input, {
+            ...init,
+            headers,
+            cache: "no-store",
+            redirect: "error",
+          });
+        },
+      },
+    },
+  );
+  const { data, error } = await client
+    .from("events")
+    .select(PUBLIC_EVENT_COLUMNS)
+    .eq("publication_status", "published")
+    .eq("is_fixture", false)
+    .eq("city", "New York")
+    .eq("region", "NY")
+    .eq("country_code", "US")
+    .eq("time_zone", "America/New_York")
+    .in("event_format", ["in-person", "hybrid"])
+    .neq("registration_status", "cancelled")
+    .gte("starts_at", window.start)
+    .lt("starts_at", window.end)
+    .order("networking_score", { ascending: false, nullsFirst: false })
+    .order("starts_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(DASHBOARD_LIMIT + 1)
+    .retry(false)
+    .abortSignal(AbortSignal.timeout(8000));
+  if (error || data === null)
+    return { status: "unavailable", events: [], hasMore: false };
+  return resultFromRows(data, now);
+}
+
 /** Read fresh public data only. Failures are safe states, never demo fallbacks. */
 export async function loadDashboard(
   options: {
@@ -22,68 +119,16 @@ export async function loadDashboard(
   } = {},
 ): Promise<DashboardResult> {
   try {
-    const config = readDashboardConfig(options.env ?? process.env);
-    if (!config) return { status: "unconfigured", events: [], hasMore: false };
+    const env = options.env ?? process.env;
+    const selection = readDatabaseSelection(env);
     const now = options.now ?? new Date();
-    const window = dashboardWindow(now);
-    const fetcher = options.fetch ?? globalThis.fetch;
-    const client = createClient<Database>(
-      config.url,
-      config.anonKey ?? "local-anonymous",
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false,
-        },
-        global: {
-          fetch: (input, init) => {
-            const headers = new Headers(init?.headers);
-            if (!config.anonKey) {
-              // The SDK requires a key at construction. Never send the placeholder;
-              // keyless local PostgREST must use its anonymous database role.
-              headers.delete("authorization");
-              headers.delete("apikey");
-            }
-            return fetcher(input, {
-              ...init,
-              headers,
-              cache: "no-store",
-              redirect: "error",
-            });
-          },
-        },
-      },
+    if (selection.backend === "sqlite")
+      return loadSqliteDashboard(selection.path, now);
+    return await loadSupabaseDashboard(
+      env,
+      now,
+      options.fetch ?? globalThis.fetch,
     );
-    const { data, error } = await client
-      .from("events")
-      .select(PUBLIC_EVENT_COLUMNS)
-      .eq("publication_status", "published")
-      .eq("is_fixture", false)
-      .eq("city", "New York")
-      .eq("region", "NY")
-      .eq("country_code", "US")
-      .eq("time_zone", "America/New_York")
-      .in("event_format", ["in-person", "hybrid"])
-      .neq("registration_status", "cancelled")
-      .gte("starts_at", window.start)
-      .lt("starts_at", window.end)
-      .order("networking_score", { ascending: false, nullsFirst: false })
-      .order("starts_at", { ascending: true })
-      .order("id", { ascending: true })
-      .limit(DASHBOARD_LIMIT + 1)
-      .retry(false)
-      .abortSignal(AbortSignal.timeout(8000));
-    if (error || data === null)
-      return { status: "unavailable", events: [], hasMore: false };
-    const events = normalizePublishedEvents(data, now);
-    if (events.length === 0)
-      return { status: "empty", events: [], hasMore: false };
-    return {
-      status: "ready",
-      events: events.slice(0, DASHBOARD_LIMIT),
-      hasMore: events.length > DASHBOARD_LIMIT,
-    };
   } catch {
     // Do not expose provider responses, URLs, credentials, or raw exceptions.
     return { status: "unavailable", events: [], hasMore: false };

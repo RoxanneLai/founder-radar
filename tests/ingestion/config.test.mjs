@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, symlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
@@ -11,10 +11,9 @@ import {
 import { parseIngestionArgs } from "../../lib/ingestion/cli.ts";
 import { REASONING_EFFORTS } from "../../lib/ingestion/contracts.ts";
 
-async function directory(t) {
+async function directory() {
   await mkdir("codex-tmp", { recursive: true });
   const path = await mkdtemp(resolve("codex-tmp/openrouter-config-"));
-  t.after(() => rm(path, { recursive: true, force: true }));
   return path;
 }
 
@@ -38,14 +37,14 @@ function runCli(cwd, args, env = {}) {
   );
 }
 
-test("checked-in model and effort defaults have independent CLI precedence without key access", async (t) => {
+test("checked-in model and effort defaults have independent CLI precedence without key access", async () => {
   assert.deepEqual(await readModelConfig(), {
     model: "openai/gpt-5.6-luna",
     effort: "medium",
     repairModel: "openai/gpt-5.6-luna",
     repairEffort: "medium",
   });
-  const dir = await directory(t);
+  const dir = await directory();
   await mkdir(dir + "/config");
   await writeFile(
     dir + "/config/ingestion.json",
@@ -105,8 +104,8 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(JSON.parse(custom.stdout).repair.effort, "low");
 });
 
-test("help needs no config or key; paid approval and database validation precede key access", async (t) => {
-  const dir = await directory(t);
+test("help needs no config or key; paid approval and database validation precede key access", async () => {
+  const dir = await directory();
   const help = runCli(dir, ["--help"]);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /OPENROUTER.key/);
@@ -134,10 +133,12 @@ test("help needs no config or key; paid approval and database validation precede
   assert.match(blocked.stderr, /paid_api_not_enabled/);
   const missingDb = runCli(dir, ["--live"], {
     FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "supabase",
   });
   assert.match(missingDb.stderr, /missing_ingestion_environment/);
   const missingKey = runCli(dir, ["--live"], {
     FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "supabase",
     SUPABASE_URL: "http://127.0.0.1:54321",
     SUPABASE_SERVICE_ROLE_KEY: "fake-test-only",
   });
@@ -159,8 +160,8 @@ test("help needs no config or key; paid approval and database validation precede
   );
 });
 
-test("config is strict, bounded and explicit; malformed config and ambiguous flags fail safely", async (t) => {
-  const dir = await directory(t);
+test("config is strict, bounded and explicit; malformed config and ambiguous flags fail safely", async () => {
+  const dir = await directory();
   const path = dir + "/config.json";
   for (const text of [
     "not-json",
@@ -246,8 +247,8 @@ test("config is strict, bounded and explicit; malformed config and ambiguous fla
   );
 });
 
-test("key file accepts one trimmed token, rejects unsafe files, and never echoes contents", async (t) => {
-  const dir = await directory(t);
+test("key file accepts one trimmed token, rejects unsafe files, and never echoes contents", async () => {
+  const dir = await directory();
   const path = dir + "/OPENROUTER.key";
   await writeFile(path, "  sk-or-v1-offline-test-only\n", { mode: 0o600 });
   assert.equal(await readOpenRouterKey(path), "sk-or-v1-offline-test-only");

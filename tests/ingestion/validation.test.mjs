@@ -291,13 +291,25 @@ test("CLI defaults to a no-network plan and fails closed on malformed arguments"
 });
 
 test("live database configuration requires paid opt-in and local-only credentials", () => {
+  const sqlite = readIngestionConfig({ FOUNDER_RADAR_ALLOW_PAID_API: "1" });
+  assert.equal(sqlite.backend, "sqlite");
+  assert.match(sqlite.path, /data\/founder-radar\.sqlite$/);
   const env = {
     FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "supabase",
     SUPABASE_URL: "http://127.0.0.1:54321",
     SUPABASE_SERVICE_ROLE_KEY: "test-only",
   };
   assert.equal(readIngestionConfig(env).supabaseUrl, "http://127.0.0.1:54321");
   assert.throws(() => readIngestionConfig({}), /paid_api_not_enabled/);
+  assert.throws(
+    () =>
+      readIngestionConfig({
+        FOUNDER_RADAR_ALLOW_PAID_API: "1",
+        DATABASE_BACKEND: "unknown",
+      }),
+    /invalid_database_configuration/,
+  );
   assert.throws(
     () => readIngestionConfig({ ...env, SUPABASE_SERVICE_ROLE_KEY: "" }),
     /missing_ingestion_environment/,

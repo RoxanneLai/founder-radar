@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { readDashboardConfig } from "../../lib/dashboard/config.ts";
 import {
@@ -6,6 +8,12 @@ import {
   PUBLIC_EVENT_COLUMNS,
 } from "../../lib/dashboard/repository.ts";
 import { env, fakeKey, now, publishedRow } from "./helpers.mjs";
+
+async function temporaryDatabasePath() {
+  await mkdir("codex-tmp", { recursive: true });
+  const directory = await mkdtemp("codex-tmp/dashboard-sqlite-");
+  return { directory, path: join(directory, "dashboard.sqlite") };
+}
 
 test("dashboard credentials accept anonymous local access, never elevated or hosted keys", () => {
   assert.deepEqual(readDashboardConfig(env), {
@@ -39,6 +47,7 @@ test("auth-disabled local Supabase uses a credential-free anonymous request", as
   let calls = 0;
   const result = await loadDashboard({
     env: {
+      DATABASE_BACKEND: "supabase",
       SUPABASE_URL: env.SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY: "NEVER SEND THIS",
     },
@@ -61,9 +70,15 @@ test("auth-disabled local Supabase uses a credential-free anonymous request", as
 
 test("missing or unsafe configuration performs no network requests and leaks no credentials", async () => {
   const fetch = async () => assert.fail("Network not permitted");
+  const temporary = await temporaryDatabasePath();
   assert.equal(
-    (await loadDashboard({ env: {}, fetch })).status,
-    "unconfigured",
+    (
+      await loadDashboard({
+        env: { SQLITE_DATABASE_PATH: temporary.path },
+        fetch,
+      })
+    ).status,
+    "empty",
   );
   const result = await loadDashboard({
     env: { ...env, SUPABASE_ANON_KEY: "private-key" },

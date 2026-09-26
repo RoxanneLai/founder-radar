@@ -31,6 +31,7 @@
     "db:test:isolated": "node --test tests/database/*.test.mjs",
     "db:lint": "supabase db lint --local --schema public --level warning --fail-on error",
     "db:types": "supabase gen types typescript --local",
+    "db:import:supabase": "node --conditions=react-server --experimental-strip-types scripts/import-supabase-to-sqlite.ts",
     "format": "prettier --write app components lib scripts tests docs README.md"
   },
   "dependencies": {

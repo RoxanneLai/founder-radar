@@ -154,7 +154,10 @@ function reviewCli(args, succeeds = true) {
         "--database",
         database,
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, DATABASE_BACKEND: "supabase" },
+      },
     );
     let output = "";
     let errors = "";

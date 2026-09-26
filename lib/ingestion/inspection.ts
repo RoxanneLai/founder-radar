@@ -1,6 +1,8 @@
 import "server-only";
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { readDatabaseSelection } from "../storage/config.ts";
+import { openSqliteDatabase, parseJson } from "../storage/sqlite.ts";
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const uuid = z.string().uuid();
@@ -128,7 +130,7 @@ function runDocker(args: string[], input = ""): Promise<string> {
 }
 
 /** Local Docker only, in a read-only transaction with bounded timeouts. */
-export async function executeInspection(
+export async function executeSupabaseInspection(
   runId: string,
   run = runDocker,
 ): Promise<unknown> {
@@ -168,6 +170,78 @@ export async function executeInspection(
   } catch {
     throw new Error("Local ingestion inspection returned an invalid response.");
   }
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  const parsed = parseJson(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+/** SQLite inspection projects the same bounded safe fields as Supabase. */
+export function executeSqliteInspection(runId: string, path: string): unknown {
+  const database = openSqliteDatabase(path);
+  try {
+    const row = database
+      .prepare(
+        `select id, provider, status, started_at, completed_at, search_parameters,
+         sources_discovered, sources_created, sources_updated, error_message, metadata
+         from search_runs where id = ?`,
+      )
+      .get(runId);
+    if (!row) return null;
+    const metadata = jsonRecord(row.metadata);
+    const summary = record(metadata.summary);
+    const diagnostics = Array.isArray(summary.provider_diagnostics)
+      ? summary.provider_diagnostics.slice(0, 3)
+      : [];
+    const consultedUrls = Array.isArray(metadata.consulted_urls)
+      ? metadata.consulted_urls.filter(
+          (url): url is string => typeof url === "string",
+        )
+      : [];
+    const sources = database
+      .prepare(
+        `select id, source_name, source_url, event_id, first_seen_at, last_seen_at,
+         last_attempt_at, last_attempt_error from event_sources
+         where discovered_by_run_id = ?
+         or source_url in (select value from json_each(?))
+         order by source_url limit 50`,
+      )
+      .all(runId, JSON.stringify(consultedUrls));
+    return {
+      run: {
+        id: row.id,
+        provider: row.provider,
+        status: row.status,
+        started_at: row.started_at,
+        completed_at: row.completed_at,
+        search_parameters: jsonRecord(row.search_parameters),
+        sources_discovered: row.sources_discovered,
+        sources_created: row.sources_created,
+        sources_updated: row.sources_updated,
+        error_message: row.error_message,
+      },
+      provider_diagnostics: diagnostics,
+      sources,
+    };
+  } finally {
+    database.close();
+  }
+}
+
+/** Dispatch inspection through the shared backend without changing data. */
+export async function executeInspection(
+  runId: string,
+  run?: typeof runDocker,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<unknown> {
+  if (run) return executeSupabaseInspection(runId, run);
+  const selection = readDatabaseSelection(env);
+  if (selection.backend === "sqlite")
+    return executeSqliteInspection(runId, selection.path);
+  return executeSupabaseInspection(runId);
 }
 
 function record(value: unknown): Record<string, unknown> {

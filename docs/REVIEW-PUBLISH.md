@@ -4,6 +4,17 @@ This operator workflow connects discovery drafts to the published dashboard. It 
 
 ## Setup and authority
 
+SQLite is the default. It uses the same automatically initialized database as the dashboard and ingestion, with no Docker or credentials:
+
+```bash
+npm run review
+npm run review -- list
+```
+
+Set `SQLITE_DATABASE_PATH` consistently if you override the default file. See [STORAGE.md](STORAGE.md) for backend selection and backups.
+
+### Optional Supabase review
+
 Keep Docker Desktop and the local Supabase stack running. After reviewing the changes and backing up any data you want to keep, apply pending migrations from your regular Terminal:
 
 ```bash
@@ -12,7 +23,7 @@ npm run db:migrate
 
 This applies pending ingestion and review migrations without resetting data. The review migration adds `events.public_registration_url`, a private approval-history table, and review/publication functions. The updated database-backed dashboard also needs this migration; without the new column, it shows its safe unavailable state. `/sample` does not depend on the migration. Historical overnight checkpoints describe the state at that time, not the current setup.
 
-The CLI uses the existing `supabase_db_founder-radar` container and its `postgres` database. It verifies that the selected Docker context uses a local Unix socket and pins subsequent operations to that socket. Remote Docker endpoints are rejected. It needs no Supabase API key, works independently of the local API authentication setting, and does not load `.env` files. Docker access is privileged local operator access, not a substitute for user authentication on a hosted system. Keep this local stack private.
+With `DATABASE_BACKEND=supabase`, the CLI uses the existing `supabase_db_founder-radar` container and its `postgres` database. It verifies that the selected Docker context uses a local Unix socket and pins subsequent operations to that socket. Remote Docker endpoints are rejected. It needs no Supabase API key. Docker access is privileged local operator access, not a substitute for user authentication on a hosted system. Keep this local stack private.
 
 The operator runs as the local database administrator. A review token is a change detector, not a secret, login credential, digital signature, or proof that a human reviewed the record. Approval is enforced by the explicit command and database checks; administrators can still bypass the workflow with direct SQL. Anonymous and ordinary authenticated application roles cannot read evidence or approval history and cannot invoke review/publication functions. The existing privileged service role is trusted, not a public reviewer identity.
 
@@ -51,7 +62,7 @@ npm run review -- publish --event EVENT_UUID --source SOURCE_UUID --token PREVIE
 
 `--approve` means you checked the evidence, public fields, canonical link, and **every warning**. Copy the token from the preview you actually inspected. Running a preview is not publication approval, and this command must not be placed in an unattended discovery job.
 
-The database locks linked sources before the event, checks the event/evidence snapshot and selected source against the token, then atomically saves a private approval snapshot and publishes the event with the approved canonical link. Any changed event or linked source requires a fresh preview. The publisher refuses fixtures, archives, already-published events, cancelled events, events outside the upcoming 30-day in-person/hybrid NYC window, missing/failed evidence, and invalid links. The window is checked again at publication time. Duplicate or concurrent approvals cannot produce duplicate publications. [PostgreSQL locking reference](https://www.postgresql.org/docs/17/explicit-locking.html).
+The selected backend starts a write transaction, checks the event/evidence snapshot and selected source against the token, then atomically saves a private approval snapshot and publishes the event with the approved canonical link. Any changed event or linked source requires a fresh preview. The publisher refuses fixtures, archives, already-published events, cancelled events, events outside the upcoming 30-day in-person/hybrid NYC window, missing/failed evidence, and invalid links. The window is checked again at publication time. Duplicate or concurrent approvals cannot produce duplicate publications.
 
 Only publication status, publication time, the public registration URL, and the ordinary update timestamp change on the event. Other facts, unknowns, and scores are preserved. Later ingestion can refresh private source observations but cannot overwrite a published event. The private approval snapshot preserves what was reviewed even if source evidence changes later. Its recorded database role is an operator role, not an authenticated human identity.
 
@@ -62,7 +73,7 @@ The dashboard reads the canonical link from `events`, never from source records 
 - Stale token: inspect and preview again; do not automatically approve the replacement token.
 - Incorrect or incomplete facts: leave the event as a draft. This increment does not add an editing interface. Correct it through a separately authorized local data-maintenance step, then re-review.
 - Failed source observation: resolve/retry discovery under its own approval and budget before reviewing again. No paid retry is performed by this CLI.
-- Missing migrations or unavailable Docker: fix local setup, then repeat the read-only command. Do not reset the database.
+- Missing migrations or unavailable Docker in Supabase mode: fix local setup, then repeat the read-only command. Do not reset the database.
 - Timeout or interrupted publish: the result may be uncertain. Inspect the event first. If it is published, do not retry; if it remains a draft, obtain and inspect a fresh preview before deciding whether to approve again. There are no automatic write retries.
 - Already published: the command cannot edit, unpublish, or republish it. Any correction or withdrawal needs a separate explicit maintenance decision. Do not delete provenance to work around a refusal.
 
