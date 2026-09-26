@@ -644,26 +644,124 @@ type RepairScalarCheck = {
   mismatchPaths: string[] | null;
 };
 
+type RepairOriginal = {
+  evidence: unknown;
+  fallback: unknown;
+};
+
+type RepairOriginals = Map<string, RepairOriginal>;
+
+function hasSourceVerdict(value: unknown): boolean {
+  const scalars = collectScalars(value);
+  return (
+    scalars.has(scalarKey("verified")) || scalars.has(scalarKey("rejected"))
+  );
+}
+
+function matchingSourceUrls(
+  value: unknown,
+  expected: ReadonlySet<string>,
+  result = new Set<string>(),
+): Set<string> {
+  if (typeof value === "string") {
+    const url = sourceIdentity(value)?.source_url;
+    if (url && expected.has(url)) result.add(url);
+  } else if (Array.isArray(value)) {
+    for (const item of value) matchingSourceUrls(item, expected, result);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value))
+      matchingSourceUrls(item, expected, result);
+  }
+  return result;
+}
+
+/**
+ * Isolate one untrusted JSON subtree per source before asking a model to
+ * rearrange it. This prevents a structural repair from copying a fact from
+ * one event into another. A single-source response can safely use the whole
+ * bounded JSON value because there is no sibling source to contaminate it.
+ */
+function sourceScopedRepairOriginals(
+  value: unknown,
+  sources: SourceIdentity[],
+): RepairOriginals | null {
+  if (
+    (!Array.isArray(value) && (!value || typeof value !== "object")) ||
+    !sources.length
+  )
+    return null;
+  if (sources.length === 1)
+    return hasSourceVerdict(value)
+      ? new Map([
+          [
+            sources[0].source_url,
+            {
+              evidence: value,
+              fallback: { source_url: sources[0].source_url },
+            },
+          ],
+        ])
+      : null;
+
+  const expected = new Set(sources.map((source) => source.source_url));
+  const scopes: RepairOriginals = new Map();
+  let ambiguous = false;
+  const visit = (item: unknown): void => {
+    if (
+      ambiguous ||
+      (!Array.isArray(item) && (!item || typeof item !== "object"))
+    )
+      return;
+    const matches = matchingSourceUrls(item, expected);
+    if (matches.size === 1 && hasSourceVerdict(item)) {
+      const [url] = matches;
+      if (!url || scopes.has(url)) {
+        ambiguous = true;
+        return;
+      }
+      scopes.set(url, { evidence: item, fallback: { source_url: url } });
+      return;
+    }
+    if (Array.isArray(item)) {
+      for (const child of item) visit(child);
+    } else {
+      for (const child of Object.values(item)) visit(child);
+    }
+  };
+  visit(value);
+  return !ambiguous && scopes.size === expected.size ? scopes : null;
+}
+
+function candidateRepairOriginals(
+  candidates: unknown[],
+  sources: SourceIdentity[],
+  diagnostic: ProviderDiagnostic,
+): RepairOriginals | null {
+  if (!hasRepairableSourceCoverage(candidates, sources, diagnostic))
+    return null;
+  const originals: RepairOriginals = new Map();
+  for (const candidate of candidates) {
+    const url = candidateSourceUrl(candidate);
+    if (!url || originals.has(url)) return null;
+    originals.set(url, { evidence: candidate, fallback: candidate });
+  }
+  return originals;
+}
+
 /** Keep only independently canonical, fact-preserving repaired siblings. */
 function isolateFactPreservingRepairs(
-  original: unknown[],
+  original: RepairOriginals,
   repaired: unknown[],
 ): RepairScalarCheck {
   const originals = new Map<
     string,
     { candidate: unknown; scalars: Set<string> }
   >();
-  for (const candidate of original) {
-    const url = candidateSourceUrl(candidate);
-    if (!url || originals.has(url))
-      return {
-        candidates: null,
-        appliedCandidateCount: 0,
-        usableCandidateCount: 0,
-        mismatchCount: null,
-        mismatchPaths: null,
-      };
-    originals.set(url, { candidate, scalars: collectScalars(candidate) });
+  for (const [url, candidate] of original) {
+    originals.set(url, {
+      candidate: candidate.fallback,
+      scalars: collectScalars(candidate.evidence),
+    });
   }
   let appliedCandidateCount = 0;
   let usableCandidateCount = 0;
@@ -944,7 +1042,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
 
   private async repairCandidates(
     content: string,
-    original: unknown[],
+    original: RepairOriginals,
     sources: SourceIdentity[],
     signal: AbortSignal,
   ): Promise<{
@@ -1118,9 +1216,6 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     let sourceCoverage = candidates
       ? inspectSourceCoverage(candidates, sources, responseDiagnostic)
       : null;
-    // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
-    if (!candidates || candidates.length !== sources.length)
-      throw new IngestionError("invalid_extraction_shape");
     const reportedTools = response.usage?.server_tool_use;
     if (
       (reportedTools?.web_search_requests ?? 0) !== 0 ||
@@ -1135,13 +1230,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     }
     let repairMetadata: Record<string, Json> | null = null;
     let repairApplied = false;
-    if (
-      !sourceCoverage?.complete &&
-      hasRepairableSourceCoverage(candidates, sources, responseDiagnostic)
-    ) {
+    const repairOriginals = candidates
+      ? candidateRepairOriginals(candidates, sources, responseDiagnostic)
+      : sourceScopedRepairOriginals(parsed, sources);
+    if (!sourceCoverage?.complete && repairOriginals) {
       const repaired = await this.repairCandidates(
         response.choices[0].message.content ?? "",
-        candidates,
+        repairOriginals,
         sources,
         signal,
       );
@@ -1154,6 +1249,9 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         repairApplied ? this.diagnostics.at(-1)! : responseDiagnostic,
       );
     }
+    // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
+    if (!candidates || candidates.length !== sources.length)
+      throw new IngestionError("invalid_extraction_shape");
     const verifiedDiagnostic = this.verifyExtractionFetch(
       response,
       sources.length,

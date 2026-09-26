@@ -540,7 +540,7 @@ test("invalid extraction shape records only a bounded candidate count", async ()
   assert.ok(!JSON.stringify(diagnostic).includes(url));
 });
 
-test("strict local validation accepts only narrow candidate-envelope aliases", async () => {
+test("local adapters accept narrow candidate-envelope aliases without repair", async () => {
   for (const [body, shape] of [
     [JSON.stringify([candidate()]), "candidate_array"],
     [
@@ -569,20 +569,29 @@ test("strict local validation accepts only narrow candidate-envelope aliases", a
     assert.equal(provider.getDiagnostics()[0].extraction_shape, shape);
     assert.equal(provider.getDiagnostics()[0].extraction_candidate_count, 1);
   }
+});
+
+test("one bounded repair canonicalizes unfamiliar source-scoped JSON wrappers", async () => {
   for (const body of [
     JSON.stringify({ events: [candidate()] }),
     JSON.stringify({ candidates: [candidate()], extra: true }),
   ]) {
-    const { provider } = providerWithResponses([extractionResponse(body)]);
-    await assert.rejects(
-      provider.extract(
-        { report, urls: [url], metadata: {} },
-        selectSources([url], 3),
-        options,
-        signal,
-      ),
-      { code: "invalid_extraction_shape" },
+    const value = extractionResponse(body);
+    delete value.usage.server_tool_use.web_fetch_requests;
+    const { provider, requests } = providerWithResponses([
+      value,
+      response(JSON.stringify({ candidates: [candidate()] }), 0),
+    ]);
+    const extracted = await provider.extract(
+      { report, urls: [url], metadata: {} },
+      selectSources([url], 3),
+      options,
+      signal,
     );
+    assert.deepEqual(extracted.candidates, [candidate()]);
+    assert.equal(extracted.metadata.repair_attempted, true);
+    assert.equal(extracted.metadata.repair_applied, true);
+    assert.equal(requests.length, 2);
     assert.equal(provider.getDiagnostics()[0].extraction_shape, "invalid");
     assert.equal(provider.getDiagnostics()[0].extraction_candidate_count, null);
     assert.equal(
@@ -597,7 +606,109 @@ test("strict local validation accepts only narrow candidate-envelope aliases", a
       provider.getDiagnostics()[0].extraction_source_match_count,
       null,
     );
+    assert.equal(provider.getDiagnostics()[1].repair_validation, "accepted");
   }
+});
+
+test("generalized repair keeps facts isolated to each trusted source subtree", async () => {
+  const second = "https://luma.com/second-event";
+  const firstCandidate = candidate();
+  const secondCandidate = {
+    ...candidate(second),
+    title: { value: "Second Event", quote: "Second event evidence" },
+  };
+  const original = extractionResponse(
+    JSON.stringify({
+      result: {
+        records: [
+          { listing: firstCandidate, provider_note: "first" },
+          { listing: secondCandidate, provider_note: "second" },
+        ],
+      },
+    }),
+    2,
+  );
+  const repaired = response(
+    JSON.stringify({ candidates: [firstCandidate, secondCandidate] }),
+    0,
+  );
+  const { provider, requests } = providerWithResponses([original, repaired]);
+  const extracted = await provider.extract(
+    { report, urls: [url, second], metadata: {} },
+    selectSources([url, second], 3),
+    options,
+    signal,
+  );
+  assert.deepEqual(extracted.candidates, [firstCandidate, secondCandidate]);
+  assert.equal(requests.length, 2);
+  assert.equal(provider.getDiagnostics()[1].repair_validation, "accepted");
+  assert.equal(provider.getDiagnostics()[1].repair_scalar_mismatch_count, 0);
+
+  const crossed = response(
+    JSON.stringify({
+      candidates: [
+        {
+          ...firstCandidate,
+          title: secondCandidate.title,
+        },
+        secondCandidate,
+      ],
+    }),
+    0,
+  );
+  const { provider: crossedProvider } = providerWithResponses([
+    (() => {
+      const value = structuredClone(original);
+      delete value.usage.server_tool_use.web_fetch_requests;
+      return value;
+    })(),
+    crossed,
+  ]);
+  const partial = await crossedProvider.extract(
+    { report, urls: [url, second], metadata: {} },
+    selectSources([url, second], 3),
+    options,
+    signal,
+  );
+  assert.deepEqual(partial.candidates[0], { source_url: url });
+  assert.deepEqual(partial.candidates[1], secondCandidate);
+  assert.equal(
+    partial.metadata.fetch_verification,
+    "required_tool_and_source_coverage",
+  );
+  assert.equal(
+    crossedProvider.getDiagnostics()[1].repair_validation,
+    "accepted_partial",
+  );
+  assert.deepEqual(
+    crossedProvider.getDiagnostics()[1].repair_scalar_mismatch_paths,
+    ["candidates[0].title.value", "candidates[0].title.quote"],
+  );
+  assert.ok(!JSON.stringify(partial.candidates[0]).includes("Second Event"));
+});
+
+test("generalized repair fails closed for ambiguous multi-source JSON", async () => {
+  const second = "https://luma.com/second-event";
+  const body = JSON.stringify({
+    result: {
+      source_urls: [url, second],
+      shared_candidate: candidate(),
+    },
+  });
+  const { provider, requests } = providerWithResponses([
+    extractionResponse(body, 2),
+  ]);
+  await assert.rejects(
+    provider.extract(
+      { report, urls: [url, second], metadata: {} },
+      selectSources([url, second], 3),
+      options,
+      signal,
+    ),
+    { code: "invalid_extraction_shape" },
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(provider.getDiagnostics().length, 1);
 });
 
 test("strict legacy flat candidates normalize into the canonical schema", async () => {

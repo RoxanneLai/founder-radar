@@ -20,7 +20,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator inspe
 npm run ingest -- --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a source-complete noncanonical response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
+After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a safely source-scoped noncanonical JSON response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
 
 Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
 
