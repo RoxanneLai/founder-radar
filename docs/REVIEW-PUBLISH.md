@@ -32,11 +32,12 @@ The operator runs as the local database administrator. A review token is a chang
 ```bash
 npm run review
 npm run review -- list
+npm run review -- list --scope expired
 npm run review -- inspect --event EVENT_UUID
 npm run review -- preview --event EVENT_UUID --source SOURCE_UUID
 ```
 
-Replace the UUID placeholders with IDs printed by the preceding commands. No arguments prints offline help. `list` returns at most 20 drafts, ordered by ID, and a `nextCursor` when another page exists. Use `list --after CURSOR_UUID` for the next page. `inspect` shows the event and all linked source records, including their IDs; `preview` explicitly selects one linked source for the public listing link.
+Replace the UUID placeholders with IDs printed by the preceding commands. No arguments prints offline help. `list` defaults to future drafts, while `list --scope expired` returns drafts whose start time has passed; the two groups are never silently mixed. Each list returns at most 20 drafts, ordered by ID, and a `nextCursor` when another page exists. Use the same scope with `--after CURSOR_UUID` for the next page. The response records its exact `asOf` timestamp. `inspect` shows the event and all linked source records, including their IDs; `preview` explicitly selects one linked source for the public listing link.
 
 Inspect and preview run in read-only transactions. They do not write a review record, alter event data, fetch URLs, call a model, or publish anything. Events with more than 25 linked sources or responses larger than 2 MiB fail safely rather than silently dropping evidence.
 
@@ -77,7 +78,7 @@ The dashboard reads the canonical link from `events`, never from source records 
 - Timeout or interrupted publish: the result may be uncertain. Inspect the event first. If it is published, do not retry; if it remains a draft, obtain and inspect a fresh preview before deciding whether to approve again. There are no automatic write retries.
 - Already published: the command cannot edit, unpublish, or republish it. Any correction or withdrawal needs a separate explicit maintenance decision. Do not delete provenance to work around a refusal.
 
-## Tests and remaining gates
+## Tests and current gates
 
 ```bash
 npm run test:review
@@ -92,4 +93,6 @@ npm run test:next:runtime
 
 The isolated database runner creates a `fr_review_test_` database with a random suffix, applies migrations and synthetic fixtures, exercises the real CLI and concurrency cases, and drops that database afterward. The CLI's `--database` override accepts only that test-name pattern or `postgres`; it does not create/reset databases. No live data is used in these tests.
 
-The paid live-data gate has now exercised secure ingestion, source verification, schema repair, draft persistence, repeat-run deduplication, and real operator previews. Fresh run `a1344244-a8ee-4361-bc79-cb0ada11b150` wrote two nonfixture drafts; review blocked and archived its already-started event while preserving evidence. Repeat and controlled-refresh runs preserved prior evidence and publication state while exposing relevance inconsistency and the need for per-candidate repair isolation, which is now implemented and covered by the complete offline suite. Run `103b9926-addc-438e-b444-144ca09a98f7` was accidentally executed on September 24 with a September 14–28 window prepared ten days earlier. It wrote one September 15 draft and left a September 28 Meetup source unlinked with `source_evidence_insufficient`. Review blocked the past draft, which is now archived with provenance intact; the unlinked listing is a safe false negative. Live mode now rejects search starts more than 15 minutes old before credentials, database access, or paid calls, and ingestion rejects events already started at observation time. No event was published. One genuinely fresh current-window run and manual review remain pending. See [the overnight checkpoint](REVIEW-PUBLISH-PROGRESS.md) for the earlier synthetic verification.
+The paid live-data gate has now exercised secure ingestion, source verification, generalized schema repair, draft persistence, repeat-run deduplication, and real operator previews. Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` succeeded after the generalized repair converted an unfamiliar valid-JSON response into one exact canonical candidate with zero scalar mismatches. It refreshed one Meetup source and wrote one October 9 draft with no ingestion errors. The selected-source preview has no workflow blockers and remains private. Price, registration availability, categories, and scores remain unknown, and the current listing still requires manual human verification. No real event has been published automatically.
+
+Interrupted runs now have an explicit recovery workflow documented in [the ingestion guide](INGESTION.md). It previews an unchanged `running` record before an approved revision-checked cancellation, preserves all audit data, and never retries provider work. Review lists also separate upcoming and expired drafts, preventing old drafts from obscuring the actionable queue.

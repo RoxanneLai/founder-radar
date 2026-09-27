@@ -4,7 +4,7 @@
 
 The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. SQLite is the default; local Supabase remains an explicit option. It discovers NYC in-person/hybrid founder and investor event listings, extracts structured fields, and persists draft events with provenance. It does not publish events, compute scores, run on a schedule, or register for events.
 
-**Live discovery, extraction, schema repair, draft persistence, and repeat-run deduplication now work.** Fresh-window acceptance run `ac1a1fe3-84d5-4e76-b204-67dcd3f87781` refreshed three exact source identities but wrote no drafts because one changed repair scalar rejected the otherwise canonical batch. Repair isolation is now candidate-specific offline: safe canonical repaired siblings continue, a scalar-changing or malformed sibling reverts to its unchanged original input, and only the unusable sibling remains source-only. Invented repair values are never returned.
+**Live discovery, extraction, generalized schema repair, draft persistence, and repeat-run deduplication now work.** Fresh-window acceptance run `edc10f58-32cd-4ab6-9f50-4317358c5139` succeeded: it refreshed one exact Meetup source, wrote one private draft, and recorded no errors after a bounded repair converted an unfamiliar valid-JSON shape into one canonical candidate with zero scalar mismatches. Manual verification of that listing and an explicit publication decision remain human steps. Candidate-specific repair isolation still ensures that safe canonical siblings continue while unusable siblings remain source-only; invented repair values are never returned.
 
 ## What happens in one run
 
@@ -155,7 +155,7 @@ npm run test:next
 
 ### SQLite-default checkpoint — September 26, 2026
 
-Formatting, lint, TypeScript, and all 103 normal offline tests pass. The optional Supabase suite also passes: 145 pgTAP assertions plus five isolated runner tests, including the real Supabase review CLI. The production build, two built-output checks, seven runtime dashboard checks, and a credential-free fresh SQLite production-server smoke check pass. The build ran from an ignored clean copy because the app sandbox could not remove an older `.next/diagnostics` directory in the working checkout; that filesystem limitation is unrelated to the source or build output. No paid request or existing database write was made.
+Formatting, lint, TypeScript, and all 108 normal offline tests pass. The optional Supabase suite also passes: 145 pgTAP assertions plus five isolated runner tests, including the real Supabase review CLI. The production build, two built-output checks, seven runtime dashboard checks, and a credential-free fresh SQLite production-server smoke check pass. The build ran from an ignored clean copy because the app sandbox could not remove an older `.next/diagnostics` directory in the working checkout; that filesystem limitation is unrelated to the source or build output. No paid request or existing database write was made.
 
 ### OpenRouter implementation checkpoint — September 2, 2026
 
@@ -174,6 +174,16 @@ Inspect any saved local run without reading a key, making a paid request, or wri
 ```bash
 npm run ingest:inspect -- --run RUN_UUID
 ```
+
+An operating-system kill or sandbox interruption can prevent finalization and leave a run marked `running`. Confirm that its original process has stopped and inspect its provider usage first. Then use the explicit recovery workflow:
+
+```bash
+npm run ingest:recover -- list
+npm run ingest:recover -- preview --run RUN_UUID
+npm run ingest:recover -- cancel --run RUN_UUID --revision PREVIEW_REVISION --approve
+```
+
+List and preview are read-only. Cancellation performs one local revision-checked update only when the selected run is still `running` and unchanged since preview. It preserves the run, sources, events, metadata, and prior error text; sets status to `cancelled`; and adds a bounded `run_cancelled` operator-recovery audit marker. It never retries provider work. SQLite is the default, while explicit Supabase mode retains the local-Docker-only boundary. Do not use recovery to stop an active process.
 
 The inspector reads the selected backend and reports the run's parameters, safe provider diagnostics, provider-reported usage totals, and current identities/linkage for at most 50 sources. SQLite needs no Docker; Supabase inspection uses a read-only local Docker transaction. It never returns research text, source content, raw payloads, credentials, prompts, or reasoning traces. A source touched by a later run reflects its current linkage and last-attempt state, not a historical snapshot.
 
@@ -268,7 +278,7 @@ Requests opt into OpenRouter router metadata so a denied request can be distingu
 
 ## Live source-verification acceptance gate
 
-The isolated repair checkpoint is complete: one Luna request canonicalized the preserved three-candidate response, retained its two usable events and one rejected source, made no searches or database writes, and reported a cost of $0.00208335. The remaining gate is a fresh end-to-end run:
+The isolated repair checkpoint and fresh end-to-end implementation gate are complete. The historical sequence below records how the system reached that checkpoint; manual listing verification, publication approval, and broader discovery-quality evaluation remain:
 
 - The September 8–22 run `a1344244-a8ee-4361-bc79-cb0ada11b150` succeeded with two newly discovered Meetup sources, two event drafts, no unlinked sources, and no errors.
 - Research used bounded provider citations. Extraction used exact required-tool/source coverage because OpenRouter omitted the fetch counter, then one accepted repair produced two canonical candidates.
@@ -299,7 +309,9 @@ The isolated repair checkpoint is complete: one Luna request canonicalized the p
 - An intermediate original-candidate preservation checkpoint proved that a wholly unsafe repair can be discarded while an independently canonical original continues unchanged. Its regression case kept the invented value out of candidates and diagnostics, marked the repair attempted but not applied, wrote the valid original, and left its malformed sibling unlinked. The per-candidate isolation below generalizes that boundary without weakening it.
 - Fresh acceptance run `ac1a1fe3-84d5-4e76-b204-67dcd3f87781` used an immediately resolved September 25–October 9 window and limit of three. It refreshed three existing Eventbrite/Luma/Meetup sources, preserved the Eventbrite source's prior event link, and left two sources unlinked. Extraction had exact coverage but zero canonical originals. Repair made all three canonical, then changed one `source_verification.reason`; the batch-wide guard rejected all three and wrote no drafts. The requests reported $0.03272843 combined model cost; no retry was made.
 - Per-candidate scalar isolation is implemented offline. Every repaired sibling is checked against only its corresponding original. A changed or malformed sibling reverts to the unchanged original while independently canonical and scalar-preserving siblings continue. Regression coverage starts with zero valid originals, rejects an invented scalar in one repair sibling, retains a safe repaired sibling, writes one draft, leaves one source unlinked, and records `accepted_partial`. A wholly unsafe repair still falls back to any canonical originals or fails closed when none exist.
-- Still pending: perform one new current-window run whose timestamps are resolved immediately before execution. Before declaring the live gate reliable, inspect its diagnostics and manually verify every resulting draft. Do not publish automatically.
+- Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` used a September 26–October 10 window and limit of three. Research returned one previously known Meetup source. Extraction again returned an unfamiliar valid-JSON shape; the generalized repair path isolated the single-source evidence scope, produced one canonical candidate, retained exact source coverage, and reported zero scalar mismatches. The run succeeded with one refreshed source, one draft write, no unlinked sources, and no errors.
+- Its three requests reported 17,773 total tokens and $0.02809430 combined model cost, including a $0.00105610 tool-free repair. The search and fetch counters remained missing; bounded citations and exact required-tool/source coverage supplied the existing compatibility evidence.
+- A read-only operator preview for the resulting October 9 Startup Grind draft has no workflow blockers. Price, registration availability, categories, and scores remain unknown. The live generalized-repair and useful-draft gates therefore pass, but the current Meetup page still requires manual human verification before any publication decision. Research returned only one result despite a limit of three, so discovery breadth remains an evaluation limitation.
 
 - Review actual request counts, model/tool usage, and cost before expanding the limit.
 - Review any real drafts before explicitly authorizing publication to the already-integrated dashboard. Expand to additional providers only after this check passes.

@@ -6,6 +6,7 @@ import { loadDashboard } from "../../lib/dashboard/repository.ts";
 import { executeSqliteInspection } from "../../lib/ingestion/inspection.ts";
 import { SqliteIngestionRepository } from "../../lib/ingestion/sqlite-repository.ts";
 import { executeSqliteReview } from "../../lib/review/repository.ts";
+import { runReviewCli } from "../../lib/review/cli.ts";
 import { readDatabaseSelection } from "../../lib/storage/config.ts";
 import { openSqliteDatabase } from "../../lib/storage/sqlite.ts";
 import { importSupabaseSnapshot } from "../../lib/storage/supabase-import.ts";
@@ -63,6 +64,58 @@ test("SQLite is the strict default and Supabase remains an explicit backend", ()
   });
   assert.throws(() => readDatabaseSelection({ DATABASE_BACKEND: "unknown" }));
   assert.throws(() => readDatabaseSelection({ SQLITE_DATABASE_PATH: "   " }));
+});
+
+test("SQLite review lists upcoming and expired drafts separately", async () => {
+  const temporary = await temporaryDatabase();
+  const repository = new SqliteIngestionRepository(
+    temporary.path,
+    "openai/gpt-5.6-luna",
+    "medium",
+    "openai/gpt-5.6-luna",
+    "medium",
+  );
+  const runId = await repository.start({
+    from,
+    to: "2026-10-08T12:00:00.000Z",
+    limit: 3,
+  });
+  await repository.save(
+    runId,
+    source(),
+    draft({ title: "Upcoming draft" }),
+    from,
+  );
+  await repository.save(
+    runId,
+    source({
+      source_url: "https://luma.com/expired-sqlite-test",
+      external_id: "expired-sqlite-test",
+    }),
+    draft({
+      title: "Expired draft",
+      starts_at: "2026-09-23T22:00:00.000Z",
+    }),
+    from,
+  );
+  const execute = async (options) =>
+    executeSqliteReview(options, temporary.path, now);
+  const upcoming = await runReviewCli(["list"], execute, now);
+  const expired = await runReviewCli(
+    ["list", "--scope", "expired"],
+    execute,
+    now,
+  );
+  assert.deepEqual(
+    upcoming.drafts.map((event) => event.title),
+    ["Upcoming draft"],
+  );
+  assert.deepEqual(
+    expired.drafts.map((event) => event.title),
+    ["Expired draft"],
+  );
+  assert.equal(upcoming.scope, "upcoming");
+  assert.equal(expired.scope, "expired");
 });
 
 test("SQLite preserves deduplication, evidence, reviews, publication safety, and private boundaries", async () => {

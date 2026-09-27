@@ -3,12 +3,14 @@ import { z } from "zod";
 const uuid = z.string().uuid();
 export type ReviewOptions = {
   command: "help" | "list" | "inspect" | "preview" | "publish";
+  listScope: "upcoming" | "expired";
   eventId?: string;
   sourceId?: string;
   token?: string;
   after?: string;
   approved: boolean;
   database: string;
+  asOf?: string;
 };
 
 /** Parse all input before connecting; no arguments means offline help. */
@@ -25,6 +27,7 @@ export function parseReviewOptions(args: string[]): ReviewOptions {
         "--source",
         "--token",
         "--after",
+        "--scope",
         "--database",
         "--approve",
       ].includes(key) ||
@@ -38,7 +41,7 @@ export function parseReviewOptions(args: string[]): ReviewOptions {
   }
   const allowed: Record<string, string[]> = {
     help: [],
-    list: ["--database", "--after"],
+    list: ["--database", "--after", "--scope"],
     inspect: ["--database", "--event"],
     preview: ["--database", "--event", "--source"],
     publish: ["--database", "--event", "--source", "--token", "--approve"],
@@ -67,6 +70,9 @@ export function parseReviewOptions(args: string[]): ReviewOptions {
       "Publishing requires --approve and the --token from an inspected preview.",
     );
   const database = values.get("--database") ?? "postgres";
+  const scope = values.get("--scope") ?? "upcoming";
+  if (!(["upcoming", "expired"] as string[]).includes(scope))
+    throw new Error("Review scope must be upcoming or expired.");
   if (
     database !== "postgres" &&
     !/^fr_review_test_[a-f0-9]{16}$/.test(database)
@@ -76,6 +82,7 @@ export function parseReviewOptions(args: string[]): ReviewOptions {
     );
   return {
     command: command as ReviewOptions["command"],
+    listScope: scope as ReviewOptions["listScope"],
     eventId,
     sourceId,
     token,

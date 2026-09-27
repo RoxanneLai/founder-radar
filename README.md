@@ -12,7 +12,7 @@ The main dashboard at `http://localhost:3000` reads published, non-fixture NYC e
 
 See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
 
-The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. No real events were published during the historical [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
+The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator list upcoming and expired drafts separately, inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. No real events were published during the historical [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
 ### Preview an ingestion run without spending money
 
@@ -134,16 +134,16 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 
 ## Roadmap
 
-| Status                   | Scope                                                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Completed                | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                            |
-| Live checkpoint underway | OpenRouter discovery, source verification, captured-response import, optional bounded schema repair, and tests    |
-| Next                     | Merge cancelled-source discovery exclusions, then repeat one fresh-window run before publication                  |
-| Implemented and tested   | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
-| Implemented and tested   | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
-| Later                    | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation |
+| Status                 | Scope                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Completed              | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                            |
+| Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests |
+| Next                   | Manually verify the current accepted draft, then decide separately whether to publish it                          |
+| Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
+| Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
+| Later                  | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation |
 
-The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Two captured-response candidates passed current-time validation and entered the local review queue without publication or another paid request. A subsequent fresh run safely rejected a previously known cancellation but found no other listing; the next retry will exclude recent unlinked cancellations before paid research. Configure the host dashboard using its guide; one useful current-window acceptance run remains the next live-data gate. Real event collection does not depend on finishing AI scoring first.
+The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` exercised the generalized JSON repair boundary end to end: one unfamiliar extraction structure became one canonical, scalar-preserving draft with no errors. The draft remains private pending manual comparison with its current Meetup page. Interrupted runs can be listed, previewed, and explicitly closed without deleting their audit history. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
 

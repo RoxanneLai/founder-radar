@@ -65,9 +65,15 @@ function sqlValue(value: string | undefined): string {
 /** Return fixed statements only; values are quoted even after CLI validation. */
 export function reviewStatement(options: ReviewOptions): string {
   if (options.command === "list") {
+    const asOf = sqlValue(options.asOf ?? new Date().toISOString());
+    const scope =
+      options.listScope === "expired"
+        ? `starts_at <= ${asOf}::timestamptz`
+        : `starts_at > ${asOf}::timestamptz`;
     return `select coalesce(jsonb_agg(row_to_json(d)), '[]'::jsonb) from (
       select id, title, starts_at, updated_at from public.events
       where publication_status = 'draft' and not is_fixture
+      and ${scope}
       and (${sqlValue(options.after)}::uuid is null or id > ${sqlValue(options.after)}::uuid)
       order by id limit 21) d;`;
   }
@@ -262,9 +268,14 @@ export function executeSqliteReview(
         .prepare(
           `select id, title, starts_at, updated_at from events
            where publication_status = 'draft' and is_fixture = 0
+           and starts_at ${options.listScope === "expired" ? "<=" : ">"} ?
            and (? is null or id > ?) order by id limit 21`,
         )
-        .all(options.after ?? null, options.after ?? null);
+        .all(
+          options.asOf ?? now.toISOString(),
+          options.after ?? null,
+          options.after ?? null,
+        );
     if (options.command === "inspect" || options.command === "preview")
       return sqliteReview(database, options.eventId!, options.sourceId);
     if (options.command === "publish")

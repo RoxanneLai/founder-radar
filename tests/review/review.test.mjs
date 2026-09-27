@@ -190,6 +190,7 @@ test("CLI is offline by default and rejects ambiguous or incomplete approvals be
     ["list", "--database", "production"],
     ["list", "--database", "postgres", "--database", "postgres"],
     ["list", "--after", "'; delete from events; --"],
+    ["list", "--scope", "all"],
     ["preview", "--event", eventId],
     ["list", "--unknown"],
   ])
@@ -248,13 +249,33 @@ test("draft lists are capped and have a deterministic next-page cursor", async (
     id: `40000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
     title: "Synthetic draft",
   }));
-  const list = await runReviewCli(["list"], async () => rows);
+  const list = await runReviewCli(
+    ["list"],
+    async (options) => {
+      assert.equal(options.listScope, "upcoming");
+      assert.equal(options.asOf, now.toISOString());
+      return rows;
+    },
+    now,
+  );
+  assert.equal(list.scope, "upcoming");
+  assert.equal(list.asOf, now.toISOString());
   assert.equal(list.drafts.length, 20);
   assert.equal(list.nextCursor, rows[19].id);
   assert.match(
     reviewStatement(parseReviewOptions(["list", "--after", list.nextCursor])),
     /order by id limit 21/,
   );
+  const upcoming = reviewStatement({
+    ...parseReviewOptions(["list"]),
+    asOf: now.toISOString(),
+  });
+  const expired = reviewStatement({
+    ...parseReviewOptions(["list", "--scope", "expired"]),
+    asOf: now.toISOString(),
+  });
+  assert.match(upcoming, /starts_at > .*::timestamptz/);
+  assert.match(expired, /starts_at <= .*::timestamptz/);
 });
 
 test("review transport rejects remote Docker and pins local read-only transactions with timeouts", async () => {
