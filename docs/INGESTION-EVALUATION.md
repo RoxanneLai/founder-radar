@@ -58,3 +58,36 @@ The report's evidence-based order is:
 4. Continue tracking structured-output compatibility because 60% of the recent cohort used repair.
 
 Manual comparison of accepted drafts with their canonical listing pages remains outside this automated report and is still required before publication.
+
+## Replay preserved responses offline
+
+Use the capture replayer to test private, previously saved provider responses against the current extraction, compatibility, repair, and deterministic validation code. The manifest and captures stay under ignored `codex-tmp/`; the generated report is owner-readable and contains no run IDs, URLs, event facts, research text, or response text.
+
+```bash
+DATABASE_BACKEND=sqlite \
+SQLITE_DATABASE_PATH=data/imported-founder-radar.sqlite \
+npm run ingest:replay -- run \
+  --manifest codex-tmp/capture-replay-manifest.json
+```
+
+The strict manifest format is:
+
+```json
+{
+  "version": 1,
+  "cases": [
+    {
+      "label": "recent-shape-failure",
+      "run_id": "00000000-0000-4000-8000-000000000000",
+      "capture_context": "original_failure",
+      "captures": ["codex-tmp/private-response.json"]
+    }
+  ]
+}
+```
+
+`capture_context` must be `original_failure`, `follow_up_failure`, `follow_up_success`, or `unknown`. This distinction is essential: a later diagnostic response can show that the current adapter handles that later response, but it cannot prove that an unpreserved original failure is fixed. Supply a second capture only when it is the repair response paired with the first extraction response.
+
+No arguments prints help before database or capture access. The command rejects Supabase, paths outside `codex-tmp/`, malformed manifests, oversized captures, and incomplete capture sequences. It opens SQLite read-only, uses a local response substitute rather than `fetch`, reads no credentials, and makes no network requests, paid calls, database writes, publication changes, or retries.
+
+The September 29 replay contained three preserved cases. All three were accepted by the current adapter, producing four candidates that also passed current deterministic event validation. The one exact original-failure capture now yields two usable candidates and one explicit `source_fetch_failed` rejection from its three source verdicts, without invoking repair. A later three-source diagnostic also yields two usable candidates and one explicit cancellation rejection without repair. The final one-source diagnostic is structurally accepted but remains intentionally unusable because it reports insufficient source evidence. Only the first case is an exact original-failure capture; the other two are follow-up diagnostics, and original responses for the other recent failures were not retained.

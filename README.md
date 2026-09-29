@@ -26,6 +26,8 @@ Completed local runs can be inspected without paid requests or database writes u
 
 Historical ingestion quality can be measured offline with `npm run ingest:evaluate -- run`. The evaluator opens the selected SQLite database read-only, merges only allowlisted aggregate fields from ignored checkpoints, and writes an owner-only aggregate report under `codex-tmp/`. It does not read a key, contact a provider, modify the database, or publish events.
 
+Private saved provider responses can be replayed through the current adapter with `npm run ingest:replay -- run --manifest codex-tmp/capture-replay-manifest.json`. Replay is SQLite-only and offline: it reads no credentials, makes no paid calls, and writes neither database rows nor publication changes. Its ignored manifest distinguishes original failure captures from later diagnostic captures.
+
 ## Run the web application
 
 Use Node.js 24 LTS and npm.
