@@ -8,6 +8,7 @@ import {
   runInspectionCli,
 } from "../../lib/ingestion/inspection.ts";
 import { options, url } from "./helpers.mjs";
+import { privateCandidateFailure } from "../../lib/ingestion/private-candidate-failure.ts";
 
 test("Supabase SDK maps run lifecycle and atomic RPC, including source-only observations", async () => {
   const calls = [];
@@ -56,7 +57,17 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
     50,
   );
   assert.deepEqual(excluded, [url]);
-  await repo.checkpoint(id, { phase: "research" });
+  const privateMetadata = {
+    candidate_failures: [
+      privateCandidateFailure(
+        "20000000-0000-4000-8000-000000000001",
+        "invalid_candidate",
+        "2026-09-01T12:00:00Z",
+        [{ registration_status: { value: "unknown", quote: null } }],
+      ),
+    ],
+  };
+  await repo.checkpoint(id, { phase: "research", ...privateMetadata });
   const saved = await repo.save(
     id,
     { source_name: "luma.com", source_url: url, external_id: null },
@@ -73,7 +84,7 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
       sources_updated: 0,
       errors: [],
     },
-    {},
+    privateMetadata,
   );
   assert.match(calls[0].url, /last_attempt_at/);
   assert.equal(calls[1].body.provider, "openrouter-web-search");
@@ -88,6 +99,11 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
   assert.match(calls[2].url, /last_attempt_error=eq.source_page_cancelled/);
   assert.match(calls[2].url, /limit=50/);
   assert.match(calls[4].url, /\/rest\/v1\/rpc\/ingest_event_source/);
+  assert.deepEqual(
+    calls[3].body.metadata.candidate_failures,
+    privateMetadata.candidate_failures,
+  );
+  assert.deepEqual(calls[5].body.metadata, privateMetadata);
   assert.equal(calls[4].body.p_event, null);
   assert.equal(calls[4].body.p_run_id, id);
   assert.equal(calls[5].body.status, "succeeded");
@@ -97,7 +113,7 @@ test("Supabase SDK maps run lifecycle and atomic RPC, including source-only obse
   const sourceId = "20000000-0000-4000-8000-000000000001";
   const statement = inspectionStatement(runId);
   assert.match(statement, /provider_diagnostics|last_attempt_error/);
-  assert.doesNotMatch(statement, /content_text|raw_payload/);
+  assert.doesNotMatch(statement, /content_text|raw_payload|candidate_failures/);
   let dockerCalls = 0;
   const rawInspection = await executeInspection(runId, async (args, input) => {
     dockerCalls += 1;

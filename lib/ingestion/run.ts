@@ -17,6 +17,7 @@ import { schemaForProfile } from "../career/contracts.ts";
 import { careerSearchPlan } from "../career/profile.ts";
 import { careerSourceEvidence } from "../career/evidence.ts";
 import { validationFailure } from "./candidate-validation.ts";
+import { privateCandidateFailure } from "./private-candidate-failure.ts";
 import { validateSearchOptions } from "./options.ts";
 import {
   MAX_RESEARCH_EXCLUSIONS,
@@ -136,6 +137,14 @@ async function saveExtractedSource(
   } catch (error) {
     const code = errorCode(error);
     addError(context.summary, code);
+    const failures = context.metadata.candidate_failures;
+    const snapshots = Array.isArray(failures) ? failures : [];
+    if (snapshots.length < 10) {
+      snapshots.push(
+        privateCandidateFailure(sourceId, code, context.observedAt, candidates),
+      );
+      context.metadata.candidate_failures = snapshots;
+    }
     if (candidates.length === 1 && code === "invalid_candidate") {
       context.summary.candidate_validation_failures ??= [];
       context.summary.candidate_validation_failures.push(

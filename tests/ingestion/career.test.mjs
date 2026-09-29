@@ -16,7 +16,11 @@ import {
   schemaForProfile,
 } from "../../lib/career/contracts.ts";
 import { normalizeCandidate } from "../../lib/ingestion/normalize.ts";
-import { resolveNycTime } from "../../lib/ingestion/event-time.ts";
+import {
+  assertQuotedEventYear,
+  resolveNycTime,
+} from "../../lib/ingestion/event-time.ts";
+import { privateCandidateFailure } from "../../lib/ingestion/private-candidate-failure.ts";
 import { careerSourceEvidence } from "../../lib/career/evidence.ts";
 import {
   validationFailure,
@@ -221,6 +225,86 @@ test("career events qualify without founders/jobs and keep legacy schema separat
   assert.ok(draft.career_assessment.cautions.includes("timezone_inferred_nyc"));
   assert.equal(draft.price_amount_cents, null);
   assert.equal(c.time_zone.value, null);
+});
+
+test("unknown registration stays null/null and becomes a visible caution, not fabricated availability", () => {
+  const c = careerCandidate();
+  c.registration_status = { value: null, quote: null };
+  const draft = normalize(c);
+  assert.equal(draft.registration_status, "unknown");
+  assert.ok(draft.career_assessment.cautions.includes("registration_unknown"));
+  assert.equal(draft.career_assessment.components.access, 2.5);
+  for (const pair of [
+    { value: "unknown", quote: null },
+    { value: "open", quote: null },
+    { value: "open", quote: "" },
+    { value: null, quote: "Register here" },
+  ]) {
+    c.registration_status = pair;
+    const failure = validationFailure(
+      "123e4567-e89b-42d3-a456-426614174000",
+      "invalid_candidate",
+      c,
+      careerCandidateSchema,
+    );
+    assert.ok(
+      failure.fields.some(
+        (entry) => entry.path === "registration_status.quote",
+      ),
+    );
+    assert.throws(() => normalize(c), /invalid_candidate/);
+  }
+});
+
+test("explicit event years cannot be rolled forward; copyright years are not event dates", () => {
+  const start = "2026-09-05T22:00:00.000Z";
+  for (const quote of [
+    "September 5, 2025 at 6 PM EDT. Copyright 2026.",
+    "Sep. 5th, 2025 at 6 PM EDT.",
+    "5 September 2025 at 6 PM EDT.",
+    "2025-09-05T18:00:00-04:00",
+  ])
+    assert.throws(
+      () => assertQuotedEventYear(start, quote),
+      /source_page_conflict/,
+    );
+  assert.doesNotThrow(() =>
+    assertQuotedEventYear(
+      start,
+      "September 5, 2026 at 6 PM EDT. Copyright 2025.",
+    ),
+  );
+  assert.doesNotThrow(() =>
+    assertQuotedEventYear(start, "Copyright 2025. Registration opens in 2025."),
+  );
+  assert.doesNotThrow(() =>
+    assertQuotedEventYear("2026-01-01T00:30:00.000Z", "2026-01-01T00:30Z"),
+  );
+  assert.doesNotThrow(() =>
+    assertQuotedEventYear(
+      "2026-01-01T00:30:00.000Z",
+      "December 31, 2025 at 7:30 PM EST",
+    ),
+  );
+  const c = careerCandidate();
+  c.starts_at = fact(
+    "2026-09-05T18:00:00-04:00",
+    "September 5, 2025 at 6 PM EDT",
+  );
+  assert.throws(
+    () =>
+      normalize(c, careerOptions, evidence + " September 5, 2025 at 6 PM EDT"),
+    /source_page_conflict/,
+  );
+  c.starts_at = fact(
+    "2025-09-05T18:00:00-04:00",
+    "September 5, 2025 at 6 PM EDT",
+  );
+  assert.throws(
+    () =>
+      normalize(c, careerOptions, evidence + " September 5, 2025 at 6 PM EDT"),
+    /outside_search_window/,
+  );
 });
 
 test("founder access needs connected actual startup participation and keynotes earn only Q&A credit", () => {
@@ -473,7 +557,113 @@ test("offline provider sends complete career schema in prompts and bounded searc
     /Required schema:.*product_relevance/,
   );
   assert.match(bodies[1].messages[0].content, /null\/null/);
+  assert.match(
+    bodies[0].messages[0].content,
+    /year explicitly stated for the event date/,
+  );
+  assert.match(
+    bodies[1].messages[0].content,
+    /source_page_past.*source_page_conflict/,
+  );
+  assert.match(
+    bodies[1].messages[0].content,
+    /Unknown registration_status must be \{"value":null,"quote":null\}/,
+  );
   assert.match(JSON.stringify(bodies[1].response_format), /product_relevance/);
+});
+
+test("private failure snapshots keep exact canonical facts/types but omit unknown transport/trace keys and bound content", () => {
+  const c = careerCandidate();
+  c.registration_status = { value: "unknown", quote: null };
+  c.headers = { Authorization: "SECRET_HEADER" };
+  c.reasoning = "SECRET_TRACE";
+  c.raw_provider_error = "SECRET_ERROR";
+  c.registration_status.reasoning = "SECRET_NESTED_TRACE";
+  const failure = privateCandidateFailure(
+    "123e4567-e89b-42d3-a456-426614174000",
+    "invalid_candidate",
+    now.toISOString(),
+    [c],
+  );
+  assert.equal(failure.candidate_count, 1);
+  assert.equal(failure.truncated, false);
+  assert.deepEqual(
+    failure.fields.find((field) => field.path === "registration_status.value"),
+    {
+      path: "registration_status.value",
+      type: "string",
+      value: "unknown",
+      truncated: false,
+    },
+  );
+  assert.deepEqual(
+    failure.fields.find((field) => field.path === "registration_status.quote"),
+    { path: "registration_status.quote", type: "null", value: null },
+  );
+  delete c.registration_status.quote;
+  const missing = privateCandidateFailure(
+    failure.source_id,
+    failure.error_code,
+    now.toISOString(),
+    [c],
+  );
+  assert.deepEqual(
+    missing.fields.find((field) => field.path === "registration_status.quote"),
+    { path: "registration_status.quote", type: "missing" },
+  );
+  c.title.value = { api_key: "SECRET_NESTED_OBJECT" };
+  const wrongType = privateCandidateFailure(
+    failure.source_id,
+    failure.error_code,
+    now.toISOString(),
+    [c],
+  );
+  assert.deepEqual(
+    wrongType.fields.find((field) => field.path === "title.value"),
+    { path: "title.value", type: "object" },
+  );
+  for (const snapshot of [failure, missing, wrongType])
+    assert.doesNotMatch(
+      JSON.stringify(snapshot),
+      /SECRET|Authorization|raw_provider_error|reasoning/,
+    );
+  c.title.quote = "x".repeat(20000);
+  c.career.people = Array.from({ length: 50 }, () => ({
+    name: fact("x".repeat(20000)),
+    company: fact("x".repeat(20000)),
+    role: fact("x".repeat(20000)),
+    participation: fact("speaker"),
+  }));
+  const bounded = privateCandidateFailure(
+    failure.source_id,
+    failure.error_code,
+    now.toISOString(),
+    [c],
+  );
+  assert.equal(bounded.truncated, true);
+  assert.ok(bounded.fields.length <= 256);
+  assert.ok(
+    bounded.fields.every(
+      (field) => typeof field.value !== "string" || field.value.length <= 4000,
+    ),
+  );
+  assert.ok(
+    bounded.fields.reduce(
+      (sum, field) =>
+        sum + (typeof field.value === "string" ? field.value.length : 0),
+      0,
+    ) <= 12000,
+  );
+  for (const inputs of [[], [c, c]]) {
+    const ambiguous = privateCandidateFailure(
+      failure.source_id,
+      failure.error_code,
+      now.toISOString(),
+      inputs,
+    );
+    assert.equal(ambiguous.candidate_count, inputs.length);
+    assert.deepEqual(ambiguous.fields, []);
+  }
 });
 
 test("SQLite career ingestion, safe inspector and stale publication review share one database", async () => {
@@ -592,6 +782,140 @@ test("normalization failures persist bounded diagnostics and keep good evidence"
     safe.sources[0].id,
   );
   assert.doesNotMatch(JSON.stringify(safe), /PRIVATE_INVALID|research_report/);
+  const db = openSqliteDatabase(path);
+  const metadata = JSON.parse(
+    db
+      .prepare("select metadata from search_runs where id = ?")
+      .get(summary.run_id).metadata,
+  );
+  db.close();
+  assert.equal(metadata.candidate_failures[0].source_id, safe.sources[0].id);
+  assert.equal(
+    metadata.candidate_failures[0].fields.find(
+      (field) => field.path === "career.product_relevance.value",
+    ).value,
+    "PRIVATE_INVALID",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(summary),
+    /PRIVATE_INVALID|candidate_failures/,
+  );
+});
+
+test("failed registration refresh preserves good evidence while recording separate private failures for both leads", async () => {
+  const { path } = await temporary();
+  const repo = repository(path);
+  const second = "https://events.datadoghq.com/events/synthetic-past-talk";
+  const good = careerCandidate();
+  good.registration_status = { value: null, quote: null };
+  const provider = {
+    async research() {
+      return { report: evidence, urls: [url], metadata: {} };
+    },
+    async extract() {
+      return { candidates: [good], metadata: {} };
+    },
+  };
+  const deps = {
+    repository: repo,
+    provider,
+    now: () => now,
+    signal: new AbortController().signal,
+  };
+  const original = await runIngestion(careerOptions, deps);
+  assert.equal(original.events_written, 1);
+  let db = openSqliteDatabase(path);
+  const before = db
+    .prepare(
+      "select event_id, content_text, content_hash, raw_payload, fetched_at from event_sources where source_url = ?",
+    )
+    .get(url);
+  db.close();
+  const broken = structuredClone(good);
+  broken.registration_status = { value: "unknown", quote: null };
+  const past = structuredClone(good);
+  past.source_url = second;
+  past.source_verification = { status: "rejected", reason: "source_page_past" };
+  for (const key of Object.keys(past))
+    if (!["source_url", "source_verification"].includes(key))
+      past[key] = key === "career" ? null : { value: null, quote: null };
+  const progress = [];
+  const summary = await runIngestion(careerOptions, {
+    ...deps,
+    now: () => new Date("2026-09-01T13:00:00Z"),
+    onProgress: async (value) => {
+      progress.push(value);
+    },
+    provider: {
+      async research() {
+        return {
+          report:
+            "### 1. Supported room\n" +
+            evidence.replace(url + ".", url) +
+            "\n### 2. Past room\nOctober 22, 2025, New York. Copyright 2026. " +
+            second,
+          urls: [url, second],
+          metadata: {},
+        };
+      },
+      async extract() {
+        return { candidates: [broken, past], metadata: {} };
+      },
+    },
+  });
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.events_written, 0);
+  assert.deepEqual(summary.errors, ["invalid_candidate", "source_page_past"]);
+  db = openSqliteDatabase(path);
+  const after = db
+    .prepare(
+      "select event_id, content_text, content_hash, raw_payload, fetched_at from event_sources where source_url = ?",
+    )
+    .get(url);
+  const metadata = JSON.parse(
+    db
+      .prepare("select metadata from search_runs where id = ?")
+      .get(summary.run_id).metadata,
+  );
+  const pastSource = db
+    .prepare(
+      "select event_id, raw_payload from event_sources where source_url = ?",
+    )
+    .get(second);
+  db.close();
+  assert.deepEqual(after, before);
+  assert.equal(pastSource.event_id, null);
+  assert.equal(pastSource.raw_payload, "{}");
+  assert.equal(metadata.candidate_failures.length, 2);
+  assert.equal(metadata.candidate_failures[0].error_code, "invalid_candidate");
+  assert.equal(
+    metadata.candidate_failures[0].observed_at,
+    "2026-09-01T13:00:00.000Z",
+  );
+  assert.equal(
+    metadata.candidate_failures[0].fields.find(
+      (field) => field.path === "registration_status.value",
+    ).value,
+    "unknown",
+  );
+  assert.equal(metadata.candidate_failures[1].error_code, "source_page_past");
+  const safe = await runInspectionCli(["--run", summary.run_id], async () =>
+    executeSqliteInspection(summary.run_id, path),
+  );
+  assert.doesNotMatch(
+    JSON.stringify([summary, progress, safe]),
+    /candidate_failures|candidate-failure-v1|October 22, 2025/,
+  );
+  assert.equal(
+    (
+      await loadDashboard({
+        career: true,
+        env: { SQLITE_DATABASE_PATH: path },
+        now,
+      })
+    ).status,
+    "empty",
+  );
 });
 
 test("private lead recovery requires history, conflict decisions, fresh evidence and unchanged preview; applies transactionally once", async () => {

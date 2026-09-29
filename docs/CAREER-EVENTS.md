@@ -56,6 +56,14 @@ Ingestion and recovery only create private drafts. Use the existing [review work
 
 Next acceptance step: separately approve a small three-search/three-candidate fresh-window career pilot, inspect its drafts and source pages, and calibrate ranking usefulness. Offline tests validate software boundaries, not live model quality. This increment does not add scheduling, automatic publication/registration, New Jersey, a browser inbox, a watchlist, or per-role views.
 
+### First career pilot — September 29, 2026
+
+Run `0fb722f5-4a92-4ea0-8a85-47a9228cd22a` completed partially with two discovered sources, no event drafts, and three model requests. The provider-reported total cost was $0.0327572 (unverified billing). FINOS failed a registration value/quote consistency check; Datadog was rejected as insufficient evidence. Independent inspection found that the [FINOS listing](https://www.finos.org/hosted-events/2026-10-08-cdm-nyc-seminar-2026) states October 8, 2026 in NYC, while [Datadog Live](https://events.datadoghq.com/events/datadog-live-newyork/) explicitly states October 22, 2025, not the 2026 year in research. The FINOS page also distinguishes a 3 PM advertised main start from earlier optional agenda activities, which needs human checking. Neither lead was published; the live career acceptance gate remains open.
+
+The offline follow-up clarifies unknown registration as null/null, requires explicit event-year checks rather than footer/window assumptions, rejects recognizable contradictory date years locally, and retains bounded canonical failed-candidate fields privately in run metadata. It does not weaken validation or allow the repair agent to invent evidence, and it cannot reconstruct this pilot's unretained candidate. No paid retry is part of the follow-up. See [failure diagnostics and evidence limitations](INGESTION.md#evidence-is-not-a-page-archive).
+
+Follow-up verification passed formatting, lint, type checking, `git diff --check`, and 141 deterministic offline tests (6 unit, 108 ingestion, 17 dashboard, 10 review). The production build and 11 compiled-page/runtime checks passed in a credential-free isolated source copy under ignored `codex-tmp/`; its nested-workspace warning was non-fatal. SQLite verification used temporary synthetic databases; Supabase metadata persistence was checked through the mocked SDK, without rerunning the optional PostgreSQL suite. No paid calls, existing database changes, or real-event publication were made during the follow-up.
+
 ## Implementation verification — September 29, 2026
 
 - `npm run format`, `npm run lint`, `npm run typecheck`, and `git diff --check` passed.

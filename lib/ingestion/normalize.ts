@@ -1,5 +1,5 @@
 import { candidateSchema } from "./contracts.ts";
-import { resolveNycTime } from "./event-time.ts";
+import { assertQuotedEventYear, resolveNycTime } from "./event-time.ts";
 import { careerCandidateSchema } from "../career/contracts.ts";
 import { assessCareer } from "../career/assessment.ts";
 import type { EventDraft, SearchOptions, SourceIdentity } from "./contracts.ts";
@@ -129,6 +129,7 @@ export function normalizeCandidate(
     throw new IngestionError("invalid_event_timezone");
   }
   const startsAt = resolveNycTime(startText);
+  assertQuotedEventYear(startsAt, c.starts_at.quote!);
   const start = Date.parse(startsAt);
   if (start < Date.parse(options.from) || start >= Date.parse(options.to))
     throw new IngestionError("outside_search_window");

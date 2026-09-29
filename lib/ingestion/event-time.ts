@@ -17,6 +17,42 @@ function wallClock(instant: number): string {
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+/** Reject recognized explicit date years that contradict the NYC event instant. */
+export function assertQuotedEventYear(instant: string, quote: string): void {
+  const months =
+    "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+  const patterns = [
+    new RegExp(
+      "\\b(?:" +
+        months +
+        ")\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+(\\d{4})\\b",
+      "gi",
+    ),
+    new RegExp(
+      "\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:" +
+        months +
+        ")\\.?[,]?\\s+(\\d{4})\\b",
+      "gi",
+    ),
+  ];
+  const years = patterns.flatMap((pattern) =>
+    [...quote.matchAll(pattern)].map((match) => match[1]),
+  );
+  for (const match of quote.matchAll(
+    /\b(\d{4})-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?/g,
+  )) {
+    const quotedInstant = Date.parse(match[0]);
+    years.push(
+      match[2] && Number.isFinite(quotedInstant)
+        ? wallClock(quotedInstant).slice(0, 4)
+        : match[1],
+    );
+  }
+  const year = wallClock(Date.parse(instant)).slice(0, 4);
+  if (years.length && !years.includes(year))
+    throw new IngestionError("source_page_conflict");
+}
+
 /** Resolve only confirmed NYC times; reject DST gaps/overlaps and explicit conflicts. */
 export function resolveNycTime(input: string): string {
   const value = input.replace(
