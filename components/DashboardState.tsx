@@ -26,8 +26,10 @@ const messages = {
 
 export function DashboardState({
   status,
+  career = false,
 }: {
   status: Exclude<DashboardResult["status"], "ready"> | "loading";
+  career?: boolean;
 }) {
   const message = messages[status];
   return (
@@ -40,16 +42,20 @@ export function DashboardState({
       <span className="eyebrow">
         {status === "loading" ? "CHECKING THE ROOMS" : "PUBLISHED EVENT FEED"}
       </span>
-      <h3>{message.title}</h3>
+      <h3>
+        {career && status === "empty"
+          ? "No published career events yet"
+          : message.title}
+      </h3>
       <p>{message.description}</p>
       {status !== "loading" && (
         <div className="feed-actions">
           {status === "unavailable" && (
-            <form action="/" method="get">
+            <form action={career ? "/career" : "/"} method="get">
               <button type="submit">Try again</button>
             </form>
           )}
-          <Link href="/sample" prefetch={false}>
+          <Link href={career ? "/sample/career" : "/sample"} prefetch={false}>
             Explore sample edition
           </Link>
         </div>

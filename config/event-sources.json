@@ -1,0 +1,5 @@
+[
+  { "host": "finos.org", "prefix": "/hosted-events/", "identity_parameter": null },
+  { "host": "events.datadoghq.com", "prefix": "/events/", "identity_parameter": null },
+  { "host": "pminyc.org", "prefix": "/calendar", "identity_parameter": "eventId" }
+]

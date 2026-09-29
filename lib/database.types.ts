@@ -141,6 +141,7 @@ export type Database = {
           address_line: string | null;
           borough: string | null;
           categories: string[];
+          career_assessment: Json | null;
           city: string;
           country_code: string;
           created_at: string;
@@ -175,6 +176,7 @@ export type Database = {
           address_line?: string | null;
           borough?: string | null;
           categories?: string[];
+          career_assessment?: Json | null;
           city?: string;
           country_code?: string;
           created_at?: string;
@@ -209,6 +211,7 @@ export type Database = {
           address_line?: string | null;
           borough?: string | null;
           categories?: string[];
+          career_assessment?: Json | null;
           city?: string;
           country_code?: string;
           created_at?: string;

@@ -1,4 +1,5 @@
 import type { Research, SearchOptions, SourceIdentity } from "./contracts.ts";
+import { careerSearchPlan } from "../career/profile.ts";
 
 export const RESEARCH_INSTRUCTIONS = [
   "Research public NYC in-person or hybrid startup founder/investor events.",
@@ -29,10 +30,8 @@ export const EXTRACTION_INSTRUCTIONS = [
   "Every non-null value requires a verbatim quote from the report that supports that field, belongs to that listing, and was confirmed by its fetched page.",
   "Use null value and null quote when unknown, including prices, currency, organizer and end time.",
   "Do not use one event's evidence for another. Never omit a supplied source; return a fact-free rejected verdict when it is not an event listing.",
-  "starts_at and ends_at must be full ISO timestamps with an explicit offset or Z; never invent a time for date-only listings.",
-  "For an in-person or hybrid event with an explicit NYC venue and explicit local date and clock time, you MUST interpret that local time as America/New_York even when the report says timezone not stated.",
-  "Convert that date/time to ISO with the date-correct -04:00 or -05:00 offset. Quote the exact report date/time line for starts_at and ends_at, and the NYC venue line for time_zone.",
-  "This NYC local-time rule is a required normalization policy, not an unsupported fact. A missing date, clock time, or NYC venue must remain null.",
+  "starts_at and ends_at may be local ISO clock times when the listing states no timezone, or full ISO timestamps with the explicitly supported offset or Z. Never invent a time for date-only listings.",
+  "Keep an unstated time_zone null/null. The application may default confirmed physical NYC events to America/New_York, with visible normalization provenance; do not fabricate a timezone quote.",
   "Normalize explicit New York locations to city New York, region NY, country_code US.",
   "event_format is in-person, hybrid, or virtual; registration_status is unknown, open, almost-full, waitlist, closed, or cancelled.",
   "price_amount_cents is an integer in minor units; currency_code is an explicit ISO code. Do not interpret '$' alone as USD.",
@@ -60,6 +59,14 @@ export function researchInput(
     starts_at_lt: options.to,
     max_candidates: options.limit,
     excluded_source_urls: excludedSourceUrls,
+    ...(options.profile === "career"
+      ? {
+          profile: "career",
+          target: options.career_target,
+          search_budget: options.searches ?? 3,
+          planned_queries: careerSearchPlan(options),
+        }
+      : {}),
   });
 }
 
@@ -73,6 +80,9 @@ export function extractionInput(
     accepted_starts_at_gte: options.from,
     accepted_starts_at_lt: options.to,
     untrusted_research_report: research.report,
+    ...(options.profile === "career"
+      ? { profile: "career", target: options.career_target }
+      : {}),
   });
 }
 

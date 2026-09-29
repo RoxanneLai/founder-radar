@@ -168,6 +168,58 @@ test("production route renders fresh published records and never exposes private
   assert.equal(databaseCalls, callsBefore + 1);
 });
 
+test("production career route exposes only published validated assessments, never private evidence", async () => {
+  const assessment = {
+    version: "career-score-v1",
+    profile_version: "career-v1",
+    score: 80,
+    components: {
+      role_fit: 30,
+      people: 25,
+      interaction: 10,
+      domain: 15,
+      access: 0,
+    },
+    reasons: [
+      "direct_product_fit",
+      "relevant_people",
+      "qa",
+      "preferred_domain",
+    ],
+    cautions: [
+      "hiring_unknown",
+      "price_unknown",
+      "participation_not_guaranteed",
+    ],
+    confidence: "needs_checking",
+    founderAccess: "not_applicable",
+    hiring: null,
+  };
+  responseRows = [
+    upcomingRow({
+      title: "Published career example",
+      career_assessment: assessment,
+      raw_payload: "PRIVATE CAREER QUOTE",
+    }),
+    upcomingRow({
+      title: "PRIVATE CAREER DRAFT",
+      career_assessment: assessment,
+      publication_status: "draft",
+    }),
+    upcomingRow({ title: "Unassessed founder event" }),
+  ];
+  const { html } = await page("/career");
+  assert.match(html, /Published career example/);
+  assert.match(html, /Career fit/);
+  assert.match(html, /Hiring/);
+  assert.doesNotMatch(html, /PRIVATE|Unassessed founder event/);
+  assert.equal((html.match(/<article\b/g) ?? []).length, 1);
+  const callsBefore = databaseCalls;
+  const sample = await page("/sample/career");
+  assert.match(sample.html, /fictional career shortlist/i);
+  assert.equal(databaseCalls, callsBefore);
+});
+
 test("production route distinguishes an empty database from a connection failure and recovers", async () => {
   responseRows = [];
   assert.match((await page()).html, /No published events yet/);

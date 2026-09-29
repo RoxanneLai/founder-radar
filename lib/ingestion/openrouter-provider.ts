@@ -2,6 +2,22 @@ import "server-only";
 import { z } from "zod";
 import type { Json } from "../database.types.ts";
 import { candidateSchema } from "./contracts.ts";
+import {
+  careerCandidateSchema,
+  schemaForProfile,
+} from "../career/contracts.ts";
+import { careerSearchPlan } from "../career/profile.ts";
+import {
+  CAREER_RESEARCH_INSTRUCTIONS,
+  CAREER_EXTRACTION_INSTRUCTIONS,
+  CAREER_REPAIR_INSTRUCTIONS,
+} from "../career/prompts.ts";
+
+function candidateContract(value: unknown) {
+  return value && typeof value === "object" && "career" in value
+    ? careerCandidateSchema
+    : candidateSchema;
+}
 import type {
   DiscoveryProvider,
   Extraction,
@@ -17,7 +33,8 @@ import {
   selectSources,
   sourceIdentity,
 } from "./sources.ts";
-import { IngestionError } from "./errors.ts";
+import { IngestionError, errorCode } from "./errors.ts";
+import { validateSearchOptions } from "./options.ts";
 import {
   EXTRACTION_INSTRUCTIONS,
   REPAIR_INSTRUCTIONS,
@@ -254,7 +271,7 @@ function canonicalCandidate(value: unknown): {
   value: unknown;
   format: "canonical" | "legacy_flat" | "legacy_nested" | "invalid";
 } {
-  if (candidateSchema.safeParse(value).success)
+  if (candidateContract(value).safeParse(value).success)
     return { value, format: "canonical" };
   const flat = flatCandidateSchema.safeParse(value);
   if (flat.success) return canonicalFlatCandidate(flat.data, value);
@@ -451,7 +468,8 @@ function inspectSourceCoverage(
   let duplicates = 0;
   let untrusted = 0;
   for (const candidate of candidates) {
-    if (candidateSchema.safeParse(candidate).success) schemaValid += 1;
+    if (candidateContract(candidate).safeParse(candidate).success)
+      schemaValid += 1;
     const url =
       candidate &&
       typeof candidate === "object" &&
@@ -534,7 +552,7 @@ function extractionCandidates(
       ? canonicalCandidate(candidate)
       : {
           value: candidate,
-          format: candidateSchema.safeParse(candidate).success
+          format: candidateContract(candidate).safeParse(candidate).success
             ? ("canonical" as const)
             : ("invalid" as const),
         },
@@ -548,7 +566,7 @@ function extractionCandidates(
   return converted.map((candidate) => candidate.value);
 }
 
-function candidateResponseFormat(count: number) {
+function candidateResponseFormat(count: number, profile?: string) {
   return {
     type: "json_schema" as const,
     json_schema: {
@@ -556,7 +574,9 @@ function candidateResponseFormat(count: number) {
       strict: true,
       schema: z.toJSONSchema(
         z
-          .object({ candidates: z.array(candidateSchema).length(count) })
+          .object({
+            candidates: z.array(schemaForProfile(profile)).length(count),
+          })
           .strict(),
       ),
     },
@@ -779,10 +799,14 @@ function isolateFactPreservingRepairs(
         mismatchCount: null,
         mismatchPaths: null,
       };
-    const parsed = candidateSchema.safeParse(candidate);
+    const parsed = candidateContract(candidate).safeParse(candidate);
     if (!parsed.success) {
       candidates.push(originalCandidate.candidate);
-      if (candidateSchema.safeParse(originalCandidate.candidate).success)
+      if (
+        candidateContract(originalCandidate.candidate).safeParse(
+          originalCandidate.candidate,
+        ).success
+      )
         usableCandidateCount += 1;
       continue;
     }
@@ -813,7 +837,11 @@ function isolateFactPreservingRepairs(
     }
     if (candidateMismatchCount) {
       candidates.push(originalCandidate.candidate);
-      if (candidateSchema.safeParse(originalCandidate.candidate).success)
+      if (
+        candidateContract(originalCandidate.candidate).safeParse(
+          originalCandidate.candidate,
+        ).success
+      )
         usableCandidateCount += 1;
     } else {
       candidates.push(candidate);
@@ -849,6 +877,7 @@ export function createOpenRouterProvider(
 }
 
 export class OpenRouterSearchProvider implements DiscoveryProvider {
+  private searchBudget = 3;
   private calls = 0;
   private primaryCalls = 0;
   private repairCalls = 0;
@@ -979,12 +1008,15 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     }
   }
 
-  private verifyResearchSearch(response: RouterResponse): ProviderDiagnostic {
+  private verifyResearchSearch(
+    response: RouterResponse,
+    budget = 3,
+  ): ProviderDiagnostic {
     const diagnostic = this.diagnostics.at(-1)!;
     const searches = response.usage?.server_tool_use?.web_search_requests;
     if (searches != null) {
       if (searches === 0) throw new IngestionError("search_not_performed");
-      if (searches > API_LIMITS.searchToolCalls)
+      if (searches > this.searchBudget)
         throw new IngestionError("search_tool_limit_exceeded");
       diagnostic.search_verification = "usage_counter";
       return diagnostic;
@@ -995,7 +1027,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     );
     if (citations.length === 0)
       throw new IngestionError("search_usage_missing");
-    if (citations.length > API_LIMITS.totalSearchResults)
+    if (citations.length > budget * API_LIMITS.searchResultsPerCall)
       throw new IngestionError("search_result_limit_exceeded");
     if (
       !citations.some((citation) => sourceIdentity(citation.url_citation!.url))
@@ -1045,6 +1077,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     original: RepairOriginals,
     sources: SourceIdentity[],
     signal: AbortSignal,
+    profile?: string,
   ): Promise<{
     candidates: unknown[];
     metadata: Record<string, Json>;
@@ -1056,11 +1089,22 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       "repair",
       {
         messages: [
-          { role: "system", content: REPAIR_INSTRUCTIONS },
+          {
+            role: "system",
+            content:
+              (profile === "career"
+                ? CAREER_REPAIR_INSTRUCTIONS
+                : REPAIR_INSTRUCTIONS) +
+              " Required schema: " +
+              JSON.stringify(
+                candidateResponseFormat(sources.length, profile).json_schema
+                  .schema,
+              ),
+          },
           { role: "user", content: repairInput(content, sources) },
         ],
         max_tokens: API_LIMITS.repairOutputTokens,
-        response_format: candidateResponseFormat(sources.length),
+        response_format: candidateResponseFormat(sources.length, profile),
       },
       signal,
       this.repairModel,
@@ -1124,6 +1168,10 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     signal: AbortSignal,
     excludedSourceUrls: string[] = [],
   ): Promise<Research> {
+    validateSearchOptions(options);
+    if (options.profile === "career" && !options.career_target)
+      throw new IngestionError("invalid_career_config");
+    this.searchBudget = options.searches ?? 3;
     const safeExcludedSourceUrls = selectSources(
       excludedSourceUrls,
       API_LIMITS.researchExcludedSources,
@@ -1132,7 +1180,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       "research",
       {
         messages: [
-          { role: "system", content: RESEARCH_INSTRUCTIONS },
+          {
+            role: "system",
+            content:
+              options.profile === "career"
+                ? CAREER_RESEARCH_INSTRUCTIONS
+                : RESEARCH_INSTRUCTIONS,
+          },
           {
             role: "user",
             content: researchInput(options, safeExcludedSourceUrls),
@@ -1144,16 +1198,17 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
             parameters: {
               engine: "exa",
               mode: "auto",
-              max_uses: API_LIMITS.searchToolCalls,
+              max_uses: this.searchBudget,
               max_results: API_LIMITS.searchResultsPerCall,
-              max_total_results: API_LIMITS.totalSearchResults,
+              max_total_results:
+                this.searchBudget * API_LIMITS.searchResultsPerCall,
               max_characters: API_LIMITS.searchResultCharacters,
               allowed_domains: ALLOWED_DOMAINS,
             },
           },
         ],
         tool_choice: "required",
-        max_tool_calls: API_LIMITS.searchToolCalls,
+        max_tool_calls: this.searchBudget,
         max_tokens: API_LIMITS.researchOutputTokens,
       },
       signal,
@@ -1162,12 +1217,23 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     const report = message.content;
     if (!report?.trim() || report.length > API_LIMITS.reportCharacters)
       throw new IngestionError("invalid_research_report");
-    const diagnostic = this.verifyResearchSearch(response);
+    const diagnostic = this.verifyResearchSearch(response, this.searchBudget);
     const urls = reportedSourceUrls(response);
     return {
       report,
       urls,
-      metadata: routerMetadata(response, this.model, this.effort, diagnostic),
+      metadata: {
+        ...(routerMetadata(
+          response,
+          this.model,
+          this.effort,
+          diagnostic,
+        ) as Record<string, Json>),
+        profile: options.profile ?? "founder",
+        planned_queries:
+          options.profile === "career" ? careerSearchPlan(options) : [],
+        executed_queries: null,
+      },
     };
   }
 
@@ -1177,11 +1243,26 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     options: SearchOptions,
     signal: AbortSignal,
   ): Promise<Extraction> {
+    validateSearchOptions(options);
+    if (options.profile === "career" && !options.career_target)
+      throw new IngestionError("invalid_career_config");
+    this.searchBudget = options.searches ?? 3;
     const response = await this.request(
       "extraction",
       {
         messages: [
-          { role: "system", content: EXTRACTION_INSTRUCTIONS },
+          {
+            role: "system",
+            content:
+              (options.profile === "career"
+                ? CAREER_EXTRACTION_INSTRUCTIONS
+                : EXTRACTION_INSTRUCTIONS) +
+              " Required schema: " +
+              JSON.stringify(
+                candidateResponseFormat(sources.length, options.profile)
+                  .json_schema.schema,
+              ),
+          },
           {
             role: "user",
             content: extractionInput(research, sources, options),
@@ -1201,7 +1282,10 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         tool_choice: "required",
         max_tool_calls: sources.length,
         max_tokens: API_LIMITS.extractionOutputTokens,
-        response_format: candidateResponseFormat(sources.length),
+        response_format: candidateResponseFormat(
+          sources.length,
+          options.profile,
+        ),
       },
       signal,
     );
@@ -1234,20 +1318,35 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       ? candidateRepairOriginals(candidates, sources, responseDiagnostic)
       : sourceScopedRepairOriginals(parsed, sources);
     if (!sourceCoverage?.complete && repairOriginals) {
-      const repaired = await this.repairCandidates(
-        response.choices[0].message.content ?? "",
-        repairOriginals,
-        sources,
-        signal,
-      );
-      candidates = repaired.candidates;
-      repairMetadata = repaired.metadata;
-      repairApplied = repaired.applied;
-      sourceCoverage = inspectSourceCoverage(
-        candidates,
-        sources,
-        repairApplied ? this.diagnostics.at(-1)! : responseDiagnostic,
-      );
+      try {
+        const repaired = await this.repairCandidates(
+          response.choices[0].message.content ?? "",
+          repairOriginals,
+          sources,
+          signal,
+          options.profile,
+        );
+        candidates = repaired.candidates;
+        repairMetadata = repaired.metadata;
+        repairApplied = repaired.applied;
+        sourceCoverage = inspectSourceCoverage(
+          candidates,
+          sources,
+          repairApplied ? this.diagnostics.at(-1)! : responseDiagnostic,
+        );
+      } catch (error) {
+        const code = errorCode(error);
+        // A structural repair failure must not discard a valid original sibling.
+        // Authentication, quota and infrastructure errors still stop the run.
+        if (
+          !candidates?.some(
+            (item) => schemaForProfile(options.profile).safeParse(item).success,
+          ) ||
+          !["invalid_repair_output", "invalid_repair_json"].includes(code)
+        )
+          throw error;
+        repairMetadata = { error_code: code };
+      }
     }
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
     if (!candidates || candidates.length !== sources.length)

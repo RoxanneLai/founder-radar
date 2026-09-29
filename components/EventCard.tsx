@@ -2,6 +2,7 @@ import { CalendarDays, MapPin, Sparkles, Ticket, Users } from "lucide-react";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { formatEventSchedule, formatStoredPrice } from "@/lib/events";
 import type { DashboardEvent } from "@/lib/dashboard/types";
+import { CareerSummary } from "@/components/CareerSummary";
 
 const registrationLabels = {
   open: "Registration open",
@@ -54,7 +55,17 @@ export function EventCard({
                 : "Organizer not listed"}
             </p>
           </div>
-          <ScoreBadge score={event.networkingScore} prominent />
+          {event.careerAssessment ? (
+            <div
+              className="career-score"
+              aria-label={`Career fit score: ${event.careerAssessment.score} out of 100`}
+            >
+              <strong>{event.careerAssessment.score}</strong>
+              <span>Career fit</span>
+            </div>
+          ) : (
+            <ScoreBadge score={event.networkingScore} prominent />
+          )}
         </div>
         <div className="event-details">
           <p>
@@ -66,30 +77,36 @@ export function EventCard({
             <span>{location || "Venue not listed · New York City"}</span>
           </p>
         </div>
-        <div className="recommendation">
-          <h4>
-            <Sparkles size={14} aria-hidden="true" />
-            {event.recommendation
-              ? "Why RightRoom recommends it"
-              : "Recommendation pending"}
-          </h4>
-          <p>
-            {event.recommendation ??
-              "No recommendation has been added for this event yet."}
-          </p>
-        </div>
+        {event.careerAssessment ? (
+          <CareerSummary assessment={event.careerAssessment} />
+        ) : (
+          <div className="recommendation">
+            <h4>
+              <Sparkles size={14} aria-hidden="true" />
+              {event.recommendation
+                ? "Why RightRoom recommends it"
+                : "Recommendation pending"}
+            </h4>
+            <p>
+              {event.recommendation ??
+                "No recommendation has been added for this event yet."}
+            </p>
+          </div>
+        )}
         {event.potentialDownside && (
           <p className="downside">
             <span>Potential downside</span> {event.potentialDownside}
           </p>
         )}
         <div className="event-footer">
-          <div className="score-group">
-            <Users size={14} aria-hidden="true" />
-            <ScoreBadge score={event.founderScore} label="Founder" />
-            <span className="score-divider" />
-            <ScoreBadge score={event.investorScore} label="Investor" />
-          </div>
+          {!event.careerAssessment && (
+            <div className="score-group">
+              <Users size={14} aria-hidden="true" />
+              <ScoreBadge score={event.founderScore} label="Founder" />
+              <span className="score-divider" />
+              <ScoreBadge score={event.investorScore} label="Investor" />
+            </div>
+          )}
           <div className="event-cost">
             <Ticket size={14} aria-hidden="true" />
             <strong>

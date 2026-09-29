@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Json } from "../database.types.ts";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 create table if not exists search_runs (
@@ -136,6 +136,16 @@ function migrate(database: DatabaseSync): void {
   database.exec("begin immediate");
   try {
     database.exec(SCHEMA);
+    if ((version?.user_version ?? 0) < 2) {
+      database.exec(
+        "alter table events add column career_assessment text check (career_assessment is null or json_valid(career_assessment))",
+      );
+      database.exec(`create table lead_recovery_audits (
+        id text primary key, source_id text not null references event_sources(id),
+        event_id text not null references events(id), approved_at text not null,
+        preview_token text not null, snapshot text not null check (json_valid(snapshot))
+      )`);
+    }
     database.exec(`pragma user_version = ${SCHEMA_VERSION}`);
     database.exec("commit");
   } catch (error) {

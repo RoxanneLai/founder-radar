@@ -1,9 +1,33 @@
+import { organizerListing, ORGANIZER_SOURCES } from "./source-registry.ts";
+
 /** Canonical public links only. Never fetch, preserve query secrets, or infer redirects. */
 export function publicListingUrl(
   input: string | null | undefined,
 ): string | null {
   if (!input || input.length > 2048 || /[\s\x00-\x1f\x7f\\]/u.test(input))
     return null;
+  const base = input
+    .split(/[?#]/, 1)[0]
+    .replace(/\/+$/, "")
+    .replace(/^https:\/\/www\./, "https://");
+  try {
+    const organizer = new URL(input);
+    organizer.hostname = organizer.hostname.replace(/^www\./, "");
+    organizer.pathname = organizer.pathname.replace(/\/+$/, "");
+    if (ORGANIZER_SOURCES.some((entry) => entry.host === organizer.hostname)) {
+      if (
+        organizer.origin + organizer.pathname !== base ||
+        organizer.protocol !== "https:" ||
+        organizer.username ||
+        organizer.password ||
+        organizer.port
+      )
+        return null;
+      return organizerListing(organizer)?.url ?? null;
+    }
+  } catch {
+    return null;
+  }
   const url = input
     .split(/[?#]/, 1)[0]
     .replace(/\/+$/, "")

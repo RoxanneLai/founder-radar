@@ -139,6 +139,9 @@ function sqliteEvent(row: Record<string, unknown>): Record<string, unknown> {
   return {
     ...row,
     categories: parseJson(row.categories),
+    career_assessment: row.career_assessment
+      ? parseJson(row.career_assessment)
+      : null,
     is_fixture: row.is_fixture === 1,
   };
 }

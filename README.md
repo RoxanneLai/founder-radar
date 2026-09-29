@@ -10,13 +10,15 @@ The project grew out of Roxanne's own search for product management opportunitie
 
 > **Naming note:** RightRoom is the product name. Some internal database filenames, ingestion identifiers, Docker resources, migrations, and historical documents still use `founder-radar` or FounderRadar so existing data and workflows remain compatible. Renaming those identifiers is separate from changing the product focus and will be handled deliberately if it becomes worthwhile.
 
-## Current milestone: startup-focused proof of concept
+## Current milestone: career discovery with human review
 
 RightRoom began as FounderRadar, a working NYC startup-event prototype. That version established the core product mechanics: a static Next.js experience with six fictional events and deterministic ranking, followed by a local-first persistence layer, bounded agentic discovery, live draft collection, source provenance, and a human review boundary. Live runs remain unpublished until explicit approval.
 
-The current discovery prompts, categories, and scoring lenses are still startup-focused. The next product milestone is to replace those assumptions with career-profile matching while preserving the tested ingestion, validation, evidence, review, and publication pipeline underneath them.
+Career discovery is now an opt-in ingestion profile. It finds physically attended NYC product and technical-delivery events, including substantive company engineering talks and financial-technology communities. A configurable, non-personal target profile guides discovery; separate explainable career scores rank supported role fit, people, interaction, domain fit, and practical access. Founders and advertised jobs are not required. The original founder profile remains compatible with historical data.
 
-The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from SQLite by default. The fictional startup-focused edition is separately available at `http://localhost:3000/sample`. Database errors and an empty feed have distinct states; they never silently substitute sample events. Supabase remains available through explicit configuration.
+The main dashboard at `http://localhost:3000` reads all published, non-fixture NYC events from SQLite by default. `/career` ranks published career events; `/sample/career` shows three clearly fictional career examples. The original fictional startup edition remains at `/sample`. Database errors and an empty feed have distinct states; they never silently substitute samples. Supabase remains available through explicit configuration.
+
+See [career discovery](docs/CAREER-EVENTS.md) for targeting, search budgets, scoring, and limitations, and [private lead recovery](docs/RECOVERY.md) for moving a failed lead into ordinary draft review using freshly checked evidence. This increment has offline and synthetic verification; a new, separately approved career pilot is still needed to assess live model quality and ranking usefulness.
 
 See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), [quality-evaluation guide](docs/INGESTION-EVALUATION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
 
@@ -26,6 +28,7 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator list 
 
 ```bash
 npm run ingest -- --limit 3
+npm run ingest -- --profile career --searches 3 --limit 3
 ```
 
 After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a safely source-scoped noncanonical JSON response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
@@ -47,7 +50,7 @@ npm run dev
 
 Open http://localhost:3000.
 
-No database configuration is needed for the default SQLite dashboard. Its persistent ignored file is created automatically. No service-role key or OpenRouter key is needed for page loads. A new database is intentionally empty; open `/sample` to see the demo. Starting the page does not run discovery or publish anything.
+No database configuration is needed for the default SQLite dashboard. Its persistent ignored file is created automatically. No service-role key or OpenRouter key is needed for page loads. A new database is intentionally empty; open `/sample/career` to see the career demo. Starting the page does not run discovery or publish anything.
 
 ## Storage
 
@@ -108,19 +111,23 @@ This preserves the latest source snapshot and its original discovery-run attribu
 
 ## Application architecture
 
-| File                       | Responsibility                                                                |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `lib/types.ts`             | Original fixture contract and shared categories                               |
-| `lib/mock-events.ts`       | Fictional fixtures used only by the sample edition                            |
-| `lib/dashboard/`           | Server-only reads, validation, public card contract, and sample adapter       |
-| `lib/storage/`             | Backend selection, SQLite schema, and explicit Supabase import                |
-| `lib/review/`              | Local operator CLI, evidence review, public preview, and explicit publication |
-| `lib/events.ts`            | Deterministic ranking, score bands, and formatting                            |
-| `components/EventCard.tsx` | Event presentation                                                            |
-| `components/Dashboard.tsx` | Shared dashboard presentation and feed states                                 |
-| `app/page.tsx`             | Request-time published event feed                                             |
-| `app/sample/page.tsx`      | Separate static fictional edition                                             |
-| `supabase/`                | Optional Postgres persistence, provenance, seed data, and database tests      |
+| File                         | Responsibility                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `lib/types.ts`               | Original fixture contract and shared categories                                        |
+| `lib/mock-events.ts`         | Fictional fixtures used only by the sample edition                                     |
+| `lib/dashboard/`             | Server-only reads, validation, public card contract, and sample adapter                |
+| `lib/storage/`               | Backend selection, SQLite schema, and explicit Supabase import                         |
+| `lib/review/`                | Local operator CLI, evidence review, public preview, and explicit publication          |
+| `lib/career/`                | Target profile, strict evidence, explainable career assessment, and fictional examples |
+| `lib/recovery/`              | SQLite-only private lead recovery with freshness, preview, and transaction audit       |
+| `lib/events.ts`              | Deterministic ranking, score bands, and formatting                                     |
+| `components/EventCard.tsx`   | Event presentation                                                                     |
+| `components/Dashboard.tsx`   | Shared dashboard presentation and feed states                                          |
+| `app/page.tsx`               | Request-time published event feed                                                      |
+| `app/sample/page.tsx`        | Separate static fictional edition                                                      |
+| `app/career/page.tsx`        | Published career events ranked by career fit                                           |
+| `app/sample/career/page.tsx` | Fictional career shortlist, independent of storage                                     |
+| `supabase/`                  | Optional Postgres persistence, provenance, seed data, and database tests               |
 
 The server-only ingestion code lives in `lib/ingestion/`, its manual entry point is `scripts/ingest.ts`, and generated database types live in `lib/database.types.ts`. Ingestion remains separate from the read-only dashboard; page loads never make paid API calls.
 
@@ -146,16 +153,17 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 
 ## Roadmap
 
-| Status                 | Scope                                                                                                             |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Completed              | FounderRadar startup-event proof of concept; database schema, provenance, fixture seeds, and contract tests       |
-| Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests |
-| Current                | RightRoom product positioning for job seekers choosing high-value in-person professional events                   |
-| Next                   | Configurable career profile, profile-aware discovery and ranking, and career-focused sample experiences           |
-| Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
-| Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
-| Implemented and tested | Read-only SQLite quality evaluation with recent-cohort, conversion, compatibility, usage, and cost metrics        |
-| Later                  | Additional providers, cross-source deduplication, scheduling, and broader personalization                         |
+| Status                 | Scope                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Completed              | FounderRadar startup-event proof of concept; database schema, provenance, fixture seeds, and contract tests                  |
+| Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests            |
+| Current                | RightRoom product positioning for job seekers choosing high-value in-person professional events                              |
+| Implemented and tested | Opt-in configurable career discovery, evidence-based ranking, career samples, timezone provenance, and private lead recovery |
+| Next                   | Small fresh career pilot, human source verification, and calibration of ranking usefulness                                   |
+| Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                   |
+| Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links                |
+| Implemented and tested | Read-only SQLite quality evaluation with recent-cohort, conversion, compatibility, usage, and cost metrics                   |
+| Later                  | Additional providers, cross-source deduplication, scheduling, and broader personalization                                    |
 
 The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` exercised the generalized JSON repair boundary end to end: one unfamiliar extraction structure became one canonical, scalar-preserving draft with no errors. The draft remains private pending manual comparison with its current Meetup page. Interrupted runs can be listed, previewed, and explicitly closed without deleting their audit history. Real event collection does not depend on finishing AI scoring first.
 

@@ -62,6 +62,7 @@ const columns = {
     "recommendation",
     "potential_downside",
     "scoring_version",
+    "career_assessment",
     "first_seen_at",
     "last_seen_at",
     "published_at",
@@ -126,6 +127,8 @@ const timestampColumns = new Set([
 ]);
 
 function databaseValue(column: string, value: unknown): SQLInputValue {
+  if (column === "career_assessment")
+    return value == null ? null : JSON.stringify(value);
   if (jsonColumns.has(column)) return JSON.stringify(value ?? {});
   if (column === "is_fixture") return value === true ? 1 : 0;
   if (timestampColumns.has(column) && typeof value === "string") {

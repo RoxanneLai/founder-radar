@@ -12,6 +12,49 @@
   --foreground: #263b35;
 }
 
+.edition-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.career-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #385547;
+  gap: 4px;
+  min-width: 72px;
+}
+
+.career-score strong {
+  font-size: 30px;
+}
+.career-score span {
+  font-size: 12px;
+}
+
+.career-components {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.career-components dt {
+  font-size: 12px;
+}
+.career-components dd {
+  margin: 4px 0;
+  font-weight: bold;
+}
+.career-cautions {
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 body {
   margin: 0;
   background: var(--background);

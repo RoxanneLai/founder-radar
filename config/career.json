@@ -1,0 +1,8 @@
+{
+  "version": "career-v1",
+  "background": "Computer-science graduate with approximately two years in capital-markets technology: requirements gathering, trade-workflow automation, observability, test automation, QA, and cross-team delivery.",
+  "primary_roles": ["product management", "technical product management"],
+  "secondary_roles": ["technical project management", "technical program management"],
+  "preferred_domains": ["fintech", "developer tools", "enterprise platforms", "applied AI"],
+  "weights": { "role_fit": 30, "people": 25, "interaction": 20, "domain": 15, "access": 10 }
+}

@@ -2,7 +2,7 @@
 
 ## RightRoom product focus
 
-RightRoom helps job seekers choose worthwhile in-person professional events. The current feed still covers NYC startup events, and `/sample` demonstrates the original startup-focused proof of concept. The interface identifies this coverage and retains the existing networking, founder, and investor score meanings. Career-profile matching and career-specific scoring remain upcoming work; the rebrand does not change discovery eligibility, stored scores, or publication rules.
+RightRoom helps job seekers choose worthwhile in-person professional events. `/` shows all published NYC events; `/career` shows reviewed career assessments ranked by career fit. `/sample/career` is a separate fictional career example with explainable components, founder applicability, hiring unknowns, and caveats. `/sample` retains the original startup edition and legacy score meanings. Both real feeds keep drafts/evidence private and require existing explicit publication review. See [career targeting and ranking](CAREER-EVENTS.md).
 
 The product name, page titles, recommendations, and job-seeker messaging use RightRoom. Internal database filenames and service identifiers retain `founder-radar` for compatibility with existing local data. See the [README](../README.md) for the audience, product direction, and roadmap.
 

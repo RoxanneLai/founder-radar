@@ -20,4 +20,19 @@ test("the published feed is dynamic while the sample edition is prerendered", as
   );
   assert.equal(manifest.routes["/"], undefined);
   assert.ok(manifest.routes["/sample"]);
+  assert.equal(manifest.routes["/career"], undefined);
+  assert.ok(manifest.routes["/sample/career"]);
+});
+
+test("career sample is clearly fictional and explains scores, unknowns and cautions", async () => {
+  const html = await readFile(
+    new URL("../.next/server/app/sample/career.html", import.meta.url),
+    "utf8",
+  );
+  assert.match(html, /fictional career shortlist/i);
+  assert.match(html, /Role fit/);
+  assert.match(html, /Hiring/);
+  assert.match(html, /ranking hypothesis/);
+  assert.equal((html.match(/<article\b/g) ?? []).length, 3);
+  assert.doesNotMatch(html, /raw_payload|source_verification|research_report/);
 });

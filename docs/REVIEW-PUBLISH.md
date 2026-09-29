@@ -2,6 +2,10 @@
 
 This operator workflow connects discovery drafts to the published dashboard. It makes no OpenAI calls, does not fetch listing pages, and never publishes automatically. There is no public admin page or browser write endpoint.
 
+The [career profile](CAREER-EVENTS.md) uses the same approval boundary. Review shows its public assessment and cautions, including unknown hiring, restrictions/prerequisites, and advertised participation not being guaranteed. A separately inferred NYC timezone is a non-blocking warning; the source fact remains unknown. Check the current listing, eligibility, and semantic relevance yourself. Changed assessment/source data invalidates the review token.
+
+Failed/unlinked discoveries are private leads, not reviewable drafts. [SQLite lead recovery](RECOVERY.md) provides separate `recover list/inspect/template/preview/apply` commands using freshly checked evidence, explicit approval, and a private audit. Recovery only creates an unpublished draft, which then enters this ordinary publication review. No browser inbox is added.
+
 ## Setup and authority
 
 SQLite is the default. It uses the same automatically initialized database as the dashboard and ingestion, with no Docker or credentials:

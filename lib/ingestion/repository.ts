@@ -103,6 +103,13 @@ export class SupabaseIngestionRepository implements IngestionRepository {
       .select("id,last_attempt_at,last_attempt_error")
       .limit(0);
     if (schemaError) throw new IngestionError("ingestion_preflight_failed");
+    if (options.profile === "career") {
+      const { error: careerError } = await this.client
+        .from("events")
+        .select("id,career_assessment")
+        .limit(0);
+      if (careerError) throw new IngestionError("career_migration_required");
+    }
     const { data, error } = await this.client
       .from("search_runs")
       .insert({

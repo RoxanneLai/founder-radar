@@ -13,6 +13,10 @@ import type {
 } from "./contracts.ts";
 import { IngestionError, errorCode } from "./errors.ts";
 import { normalizeCandidate } from "./normalize.ts";
+import { schemaForProfile } from "../career/contracts.ts";
+import { careerSearchPlan } from "../career/profile.ts";
+import { careerSourceEvidence } from "../career/evidence.ts";
+import { validationFailure } from "./candidate-validation.ts";
 import { validateSearchOptions } from "./options.ts";
 import {
   MAX_RESEARCH_EXCLUSIONS,
@@ -30,7 +34,11 @@ type Dependencies = {
   now?: () => Date;
   onProgress?: (summary: RunSummary) => Promise<void>;
 };
-type PersistedSource = { source: SourceIdentity; eventId: string | null };
+type PersistedSource = {
+  source: SourceIdentity;
+  eventId: string | null;
+  sourceId: string;
+};
 type RunContext = {
   summary: RunSummary;
   metadata: Record<string, Json>;
@@ -99,27 +107,46 @@ function indexCandidates(
 
 async function saveExtractedSource(
   source: SourceIdentity,
+  sourceId: string,
   candidates: unknown[],
   research: Research,
   context: RunContext,
   repository: IngestionRepository,
 ): Promise<SaveResult> {
   let event: EventDraft;
+  let evidence = research.report;
   try {
     if (candidates.length !== 1)
       throw new IngestionError(
         candidates.length ? "duplicate_candidate" : "candidate_missing",
       );
+    if (context.options.profile === "career")
+      evidence = careerSourceEvidence(
+        research.report,
+        source.source_url,
+        context.summary.sources_discovered,
+      );
     event = normalizeCandidate(
       candidates[0],
       source,
-      research.report,
+      evidence,
       context.options,
       context.observedAt,
     );
   } catch (error) {
     const code = errorCode(error);
     addError(context.summary, code);
+    if (candidates.length === 1 && code === "invalid_candidate") {
+      context.summary.candidate_validation_failures ??= [];
+      context.summary.candidate_validation_failures.push(
+        validationFailure(
+          sourceId,
+          code,
+          candidates[0],
+          schemaForProfile(context.options.profile),
+        ),
+      );
+    }
     return repository.save(
       context.summary.run_id,
       { ...source, error_code: code },
@@ -131,13 +158,14 @@ async function saveExtractedSource(
     context.summary.run_id,
     {
       ...source,
-      content_text: research.report,
-      content_hash: createHash("sha256").update(research.report).digest("hex"),
+      content_text: evidence,
+      content_hash: createHash("sha256").update(evidence).digest("hex"),
       raw_payload: {
         evidence_kind: "model_web_search_report_with_source_fetch",
         research: research.metadata,
         extraction: context.metadata.extraction ?? null,
         candidate: JSON.parse(JSON.stringify(candidates[0])) as Json,
+        normalization_notes: event.normalization_notes ?? [],
       },
     },
     event,
@@ -163,7 +191,11 @@ async function persistDiscovery(
       if (saved.source_created) context.summary.sources_created += 1;
       else context.summary.sources_updated += 1;
       if (!saved.event_id) context.summary.sources_unlinked += 1;
-      persisted.push({ source, eventId: saved.event_id });
+      persisted.push({
+        source,
+        eventId: saved.event_id,
+        sourceId: saved.source_id,
+      });
     } catch (error) {
       addError(context.summary, errorCode(error));
     }
@@ -215,11 +247,12 @@ async function processCandidates(
   const sources = persisted.map((item) => item.source);
   const candidates = await extractCandidates(sources, research, context, deps);
   const indexed = indexCandidates(candidates, sources, context.summary);
-  for (const { source, eventId } of persisted) {
+  for (const { source, eventId, sourceId } of persisted) {
     checkCancellation(deps.signal);
     try {
       const saved = await saveExtractedSource(
         source,
+        sourceId,
         indexed.get(source.source_url) ?? [],
         research,
         context,
@@ -252,6 +285,7 @@ async function collectAndPersist(
     MAX_RESEARCH_EXCLUSIONS,
   ).map((source) => source.source_url);
   context.metadata.excluded_source_count = excludedSourceUrls.length;
+  context.metadata.excluded_source_urls = excludedSourceUrls;
   const research = await deps.provider.research(
     context.options,
     deps.signal,
@@ -268,7 +302,7 @@ async function collectAndPersist(
   Object.assign(context.metadata, {
     research: research.metadata,
     research_report: research.report,
-    consulted_urls: research.urls,
+    consulted_urls: sources.map((source) => source.source_url),
   });
   await deps.repository.checkpoint(context.summary.run_id, context.metadata);
   const persisted = await persistDiscovery(sources, context, deps);
@@ -285,6 +319,8 @@ export async function runIngestion(
   deps: Dependencies,
 ): Promise<RunSummary> {
   const options = validateSearchOptions(input);
+  if (options.profile === "career" && !options.career_target)
+    throw new IngestionError("invalid_career_config");
   checkCancellation(deps.signal);
   const summary: RunSummary = {
     run_id: await deps.repository.start(options),
@@ -301,6 +337,10 @@ export async function runIngestion(
     options,
     metadata: {
       evidence_kind: "model_web_search_report_with_source_fetch",
+      profile: options.profile ?? "founder",
+      profile_version: options.career_target?.version ?? "founder-v1",
+      planned_queries:
+        options.profile === "career" ? careerSearchPlan(options) : [],
     },
     observedAt: "",
   };

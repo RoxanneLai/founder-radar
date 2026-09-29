@@ -13,10 +13,26 @@ import type { DashboardResult } from "./types.ts";
 
 // Intentionally no joins, source evidence, internal timestamps, or run metadata.
 export const PUBLIC_EVENT_COLUMNS =
-  "id,title,organizer_name,starts_at,ends_at,time_zone,venue_name,neighborhood,borough,city,region,country_code,event_format,categories,price_amount_cents,currency_code,registration_status,publication_status,is_fixture,founder_score,investor_score,networking_score,recommendation,potential_downside,public_registration_url";
+  "id,title,organizer_name,starts_at,ends_at,time_zone,venue_name,neighborhood,borough,city,region,country_code,event_format,categories,price_amount_cents,currency_code,registration_status,publication_status,is_fixture,founder_score,investor_score,networking_score,recommendation,potential_downside,public_registration_url,career_assessment";
 
-function resultFromRows(rows: unknown, now: Date): DashboardResult {
-  const events = normalizePublishedEvents(rows, now);
+function resultFromRows(
+  rows: unknown,
+  now: Date,
+  career = false,
+): DashboardResult {
+  let events = normalizePublishedEvents(rows, now);
+  if (career)
+    events = events
+      .filter(
+        (event) =>
+          event.careerAssessment && event.registrationStatus !== "closed",
+      )
+      .sort(
+        (a, b) =>
+          b.careerAssessment!.score - a.careerAssessment!.score ||
+          Date.parse(a.startsAt) - Date.parse(b.startsAt) ||
+          a.id.localeCompare(b.id),
+      );
   if (events.length === 0)
     return { status: "empty", events: [], hasMore: false };
   return {
@@ -26,7 +42,11 @@ function resultFromRows(rows: unknown, now: Date): DashboardResult {
   };
 }
 
-function loadSqliteDashboard(path: string, now: Date): DashboardResult {
+function loadSqliteDashboard(
+  path: string,
+  now: Date,
+  career = false,
+): DashboardResult {
   const window = dashboardWindow(now);
   const database = openSqliteDatabase(path);
   try {
@@ -37,16 +57,20 @@ function loadSqliteDashboard(path: string, now: Date): DashboardResult {
          and city = 'New York' and region = 'NY' and country_code = 'US'
          and time_zone = 'America/New_York' and event_format in ('in-person','hybrid')
          and registration_status <> 'cancelled'
+         ${career ? "and career_assessment is not null and registration_status <> 'closed'" : ""}
          and julianday(starts_at) >= julianday(?) and julianday(starts_at) < julianday(?)
-         order by networking_score desc nulls last, julianday(starts_at) asc, id asc limit ?`,
+         order by ${career ? "json_extract(career_assessment, '$.score')" : "networking_score"} desc nulls last, julianday(starts_at) asc, id asc limit ?`,
       )
       .all(window.start, window.end, DASHBOARD_LIMIT + 1)
       .map((row) => ({
         ...row,
         categories: parseJson(row.categories),
+        career_assessment: row.career_assessment
+          ? parseJson(row.career_assessment)
+          : null,
         is_fixture: row.is_fixture === 1,
       }));
-    return resultFromRows(rows, now);
+    return resultFromRows(rows, now, career);
   } finally {
     database.close();
   }
@@ -56,6 +80,7 @@ async function loadSupabaseDashboard(
   env: NodeJS.ProcessEnv,
   now: Date,
   fetcher: typeof globalThis.fetch,
+  career = false,
 ): Promise<DashboardResult> {
   const config = readDashboardConfig(env);
   if (!config) return { status: "unconfigured", events: [], hasMore: false };
@@ -86,7 +111,7 @@ async function loadSupabaseDashboard(
       },
     },
   );
-  const { data, error } = await client
+  let query = client
     .from("events")
     .select(PUBLIC_EVENT_COLUMNS)
     .eq("publication_status", "published")
@@ -99,15 +124,23 @@ async function loadSupabaseDashboard(
     .neq("registration_status", "cancelled")
     .gte("starts_at", window.start)
     .lt("starts_at", window.end)
-    .order("networking_score", { ascending: false, nullsFirst: false })
+    .order(career ? "career_assessment->score" : "networking_score", {
+      ascending: false,
+      nullsFirst: false,
+    })
     .order("starts_at", { ascending: true })
     .order("id", { ascending: true })
     .limit(DASHBOARD_LIMIT + 1)
     .retry(false)
     .abortSignal(AbortSignal.timeout(8000));
+  if (career)
+    query = query
+      .not("career_assessment", "is", null)
+      .neq("registration_status", "closed");
+  const { data, error } = await query;
   if (error || data === null)
     return { status: "unavailable", events: [], hasMore: false };
-  return resultFromRows(data, now);
+  return resultFromRows(data, now, career);
 }
 
 /** Read fresh public data only. Failures are safe states, never demo fallbacks. */
@@ -116,6 +149,7 @@ export async function loadDashboard(
     env?: NodeJS.ProcessEnv;
     now?: Date;
     fetch?: typeof globalThis.fetch;
+    career?: boolean;
   } = {},
 ): Promise<DashboardResult> {
   try {
@@ -123,11 +157,12 @@ export async function loadDashboard(
     const selection = readDatabaseSelection(env);
     const now = options.now ?? new Date();
     if (selection.backend === "sqlite")
-      return loadSqliteDashboard(selection.path, now);
+      return loadSqliteDashboard(selection.path, now, options.career);
     return await loadSupabaseDashboard(
       env,
       now,
       options.fetch ?? globalThis.fetch,
+      options.career,
     );
   } catch {
     // Do not expose provider responses, URLs, credentials, or raw exceptions.

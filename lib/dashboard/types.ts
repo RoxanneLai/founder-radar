@@ -2,6 +2,7 @@ import type { EventCategory } from "../types.ts";
 
 /** Public card data only; never source evidence, credentials, or run diagnostics. */
 export type DashboardEvent = {
+  careerAssessment?: import("../career/contracts.ts").CareerAssessment;
   id: string;
   title: string;
   organizer: string | null;

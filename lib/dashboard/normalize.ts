@@ -3,6 +3,7 @@ import { EVENT_CATEGORIES } from "../types.ts";
 import { rankEvents } from "../events.ts";
 import type { DashboardEvent } from "./types.ts";
 import { publicListingUrl } from "../public-listing-url.ts";
+import { careerAssessmentSchema } from "../career/contracts.ts";
 
 export const DASHBOARD_LIMIT = 50;
 export const DASHBOARD_DAYS = 30;
@@ -51,6 +52,7 @@ const rowSchema = z
     recommendation: text,
     potential_downside: text,
     public_registration_url: z.string().nullable().optional(),
+    career_assessment: careerAssessmentSchema.nullable().optional(),
   })
   .refine(
     (row) =>
@@ -89,6 +91,9 @@ function isVisibleEvent(
 
 function toDashboardEvent(row: PublicEventRow): DashboardEvent {
   return {
+    ...(row.career_assessment
+      ? { careerAssessment: row.career_assessment }
+      : {}),
     id: row.id,
     title: row.title,
     organizer: row.organizer_name,

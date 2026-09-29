@@ -1613,17 +1613,25 @@ test("missing fetch counters safely diagnose partial, invalid, duplicate and unt
       );
     }
     const { provider, requests } = providerWithResponses(responses);
-    await assert.rejects(
-      provider.extract(
-        { report, urls: [url, second], metadata: {} },
-        sources,
-        options,
-        signal,
-      ),
-      { code: expected },
+    const extracting = provider.extract(
+      { report, urls: [url, second], metadata: {} },
+      sources,
+      options,
+      signal,
     );
+    if (repairable) {
+      const extracted = await extracting;
+      assert.deepEqual(extracted.candidates, candidates);
+      assert.equal(
+        extracted.metadata.repair.error_code,
+        "invalid_repair_output",
+      );
+    } else await assert.rejects(extracting, { code: expected });
     const diagnostic = provider.getDiagnostics()[0];
-    assert.equal(diagnostic.fetch_verification, undefined);
+    assert.equal(
+      diagnostic.fetch_verification,
+      repairable ? "required_tool_and_source_coverage" : undefined,
+    );
     assert.equal(diagnostic.extraction_schema_valid_count, counts.valid);
     assert.equal(diagnostic.extraction_source_match_count, counts.matched);
     assert.equal(

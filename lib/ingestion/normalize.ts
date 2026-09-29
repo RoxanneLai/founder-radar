@@ -1,5 +1,7 @@
-import { z } from "zod";
 import { candidateSchema } from "./contracts.ts";
+import { resolveNycTime } from "./event-time.ts";
+import { careerCandidateSchema } from "../career/contracts.ts";
+import { assessCareer } from "../career/assessment.ts";
 import type { EventDraft, SearchOptions, SourceIdentity } from "./contracts.ts";
 import { IngestionError } from "./errors.ts";
 import { sourceIdentity } from "./sources.ts";
@@ -23,21 +25,6 @@ function text(
 ): string | null {
   const value = supported(fact, report)?.trim();
   return value && value.length <= maxLength ? value : null;
-}
-
-function instant(value: string | null): string | null {
-  const withSeconds = value?.replace(
-    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/,
-    "$1:00$2",
-  );
-  if (
-    !withSeconds ||
-    !z.iso.datetime({ offset: true }).safeParse(withSeconds).success
-  )
-    return null;
-  return Number.isFinite(Date.parse(withSeconds))
-    ? new Date(withSeconds).toISOString()
-    : null;
 }
 
 function hasCorrectOffset(value: string, timeZone: string): boolean {
@@ -85,7 +72,10 @@ export function normalizeCandidate(
   options: SearchOptions,
   observedAt: string,
 ): EventDraft {
-  const parsed = candidateSchema.safeParse(input);
+  const parsed =
+    options.profile === "career"
+      ? careerCandidateSchema.safeParse(input)
+      : candidateSchema.safeParse(input);
   if (!parsed.success) throw new IngestionError("invalid_candidate");
   const c = parsed.data;
   if (sourceIdentity(c.source_url)?.source_url !== source.source_url)
@@ -93,26 +83,22 @@ export function normalizeCandidate(
   if (c.source_verification.status === "rejected") {
     throw new IngestionError(c.source_verification.reason!);
   }
-  if (supported(c.relevant_to_founders, report) !== true)
+  if (
+    options.profile !== "career" &&
+    supported(c.relevant_to_founders, report) !== true
+  )
     throw new IngestionError("irrelevant_event");
   const title = text(c.title, report, 300);
   const startText = text(c.starts_at, report);
-  const startsAt = instant(startText);
-  const timeZone = text(c.time_zone, report);
+  const statedTimeZone = text(c.time_zone, report);
+  if (c.time_zone.value !== null && !statedTimeZone)
+    throw new IngestionError("invalid_event_timezone");
+  const timeZone = statedTimeZone ?? "America/New_York";
   const city = text(c.city, report);
   const region = text(c.region, report);
   const country = text(c.country_code, report);
   const format = text(c.event_format, report);
-  if (
-    !title ||
-    !startsAt ||
-    !startText ||
-    !city ||
-    !region ||
-    !country ||
-    !format ||
-    !timeZone
-  ) {
+  if (!title || !startText || !city || !region || !country || !format) {
     throw new IngestionError("incomplete_event");
   }
   if (!c.title.quote?.toLocaleLowerCase().includes(title.toLocaleLowerCase())) {
@@ -139,24 +125,28 @@ export function normalizeCandidate(
   }
   if (!["in-person", "hybrid"].includes(format))
     throw new IngestionError("unsupported_event_format");
-  if (
-    timeZone !== "America/New_York" ||
-    !hasCorrectOffset(startText, timeZone)
-  ) {
+  if (timeZone !== "America/New_York") {
     throw new IngestionError("invalid_event_timezone");
   }
+  const startsAt = resolveNycTime(startText);
   const start = Date.parse(startsAt);
   if (start < Date.parse(options.from) || start >= Date.parse(options.to))
     throw new IngestionError("outside_search_window");
   if (start <= Date.parse(observedAt))
     throw new IngestionError("event_already_started");
   const endText = text(c.ends_at, report);
-  const endsAt = instant(endText);
+  let endsAt: string | null = null;
+  try {
+    endsAt = endText ? resolveNycTime(endText) : null;
+  } catch {
+    throw new IngestionError("invalid_event_end");
+  }
   if (
     endText &&
     (!endsAt ||
       Date.parse(endsAt) <= start ||
-      !hasCorrectOffset(endText, timeZone))
+      (/[+-]\d{2}:\d{2}$/.test(endText) &&
+        !hasCorrectOffset(endText, timeZone)))
   ) {
     throw new IngestionError("invalid_event_end");
   }
@@ -168,7 +158,10 @@ export function normalizeCandidate(
     /^[A-Z]{3}$/.test(currency) &&
     new RegExp("\\b" + currency + "\\b", "i").test(c.currency_code.quote ?? "");
   const registration = text(c.registration_status, report);
-  return {
+  const event: EventDraft = {
+    ...(!statedTimeZone
+      ? { normalization_notes: ["timezone_inferred_nyc"] }
+      : {}),
     title,
     organizer_name: text(c.organizer_name, report),
     starts_at: startsAt,
@@ -190,4 +183,15 @@ export function normalizeCandidate(
         ? registration
         : "unknown",
   };
+  if (options.profile === "career") {
+    if (!options.career_target || !("career" in c))
+      throw new IngestionError("invalid_career_config");
+    event.career_assessment = assessCareer(
+      c.career,
+      report,
+      event,
+      options.career_target,
+    );
+  }
+  return event;
 }

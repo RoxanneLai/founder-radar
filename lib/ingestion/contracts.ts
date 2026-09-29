@@ -14,7 +14,7 @@ export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 // A quote anchors every field to the research report. It is not independent
 // verification of the original page, so ingestion can only create drafts.
-const textFact = z
+export const textFact = z
   .object({
     value: z.string().nullable(),
     quote: z.string().nullable(),
@@ -34,7 +34,7 @@ const relevantFact = z
     quote: z.string().nullable(),
   })
   .strict();
-const sourceVerification = z
+export const sourceVerification = z
   .object({
     status: z.enum(["verified", "rejected"]),
     reason: z
@@ -51,7 +51,7 @@ const sourceVerification = z
   })
   .strict();
 
-export const candidateSchema = z
+export const candidateBaseSchema = z
   .object({
     source_url: z.string(),
     source_verification: sourceVerification,
@@ -71,8 +71,10 @@ export const candidateSchema = z
     currency_code: textFact,
     registration_status: textFact,
   })
-  .strict()
-  .superRefine((candidate, context) => {
+  .strict();
+
+export const candidateSchema = candidateBaseSchema.superRefine(
+  (candidate, context) => {
     const facts: Array<{ value: unknown; quote: string | null }> = [
       candidate.relevant_to_founders,
       candidate.title,
@@ -91,18 +93,37 @@ export const candidateSchema = z
       candidate.registration_status,
     ];
     const rejected = candidate.source_verification.status === "rejected";
-    const inconsistent = rejected
-      ? candidate.source_verification.reason === null ||
-        facts.some((fact) => fact.value !== null || fact.quote !== null)
-      : candidate.source_verification.reason !== null ||
-        candidate.relevant_to_founders.value !== true ||
-        !candidate.relevant_to_founders.quote?.trim();
-    if (inconsistent)
+    if (
+      rejected
+        ? candidate.source_verification.reason === null
+        : candidate.source_verification.reason !== null
+    )
       context.addIssue({
         code: "custom",
+        path: ["source_verification", "reason"],
         message: "inconsistent source verification verdict",
       });
-  });
+    if (
+      rejected &&
+      facts.some((fact) => fact.value !== null || fact.quote !== null)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["source_verification", "status"],
+        message: "rejected facts",
+      });
+    if (
+      !rejected &&
+      (candidate.relevant_to_founders.value !== true ||
+        !candidate.relevant_to_founders.quote?.trim())
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["relevant_to_founders", "quote"],
+        message: "missing relevance",
+      });
+  },
+);
 
 export type Candidate = z.infer<typeof candidateSchema>;
 export type EventDraft = Pick<
@@ -121,12 +142,15 @@ export type EventDraft = Pick<
   | "price_amount_cents"
   | "currency_code"
   | "registration_status"
->;
+> & { career_assessment?: Json | null; normalization_notes?: Json };
 
 export type SearchOptions = {
   from: string;
   to: string;
   limit: number;
+  profile?: "founder" | "career";
+  searches?: number;
+  career_target?: import("../career/profile.ts").CareerTarget;
 };
 
 export type SourceIdentity = {
@@ -250,6 +274,14 @@ export type RunSummary = {
   sources_unlinked: number;
   errors: string[];
   provider_diagnostics?: ProviderDiagnostic[];
+  candidate_validation_failures?: CandidateValidationFailure[];
+};
+
+export type CandidateValidationFailure = {
+  source_id: string;
+  error_code: string;
+  fields: Array<{ path: string; reason: string }>;
+  truncated: boolean;
 };
 
 export interface IngestionRepository {

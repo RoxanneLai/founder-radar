@@ -14,14 +14,16 @@ import { DashboardState } from "@/components/DashboardState";
 export function Dashboard({
   result,
   sample = false,
+  career = false,
 }: {
   result: DashboardResult | { status: "loading"; events: []; hasMore: false };
   sample?: boolean;
+  career?: boolean;
 }) {
   const events = result.events;
   const newCount = events.filter((event) => event.isNew).length;
-  const scoredCount = events.filter(
-    (event) => event.networkingScore !== null,
+  const scoredCount = events.filter((event) =>
+    career ? Boolean(event.careerAssessment) : event.networkingScore !== null,
   ).length;
   const freeCount = events.filter(
     (event) => event.priceAmountCents === 0 && event.currencyCode !== null,
@@ -54,12 +56,31 @@ export function Dashboard({
               {sample ? "SAMPLE EDITION" : "PUBLISHED EDITION"}
             </span>
             <Link
-              href={sample ? "/" : "/sample"}
+              href={
+                sample
+                  ? career
+                    ? "/career"
+                    : "/"
+                  : career
+                    ? "/sample/career"
+                    : "/sample"
+              }
               prefetch={false}
               className="edition-link"
             >
               {sample ? "Published events" : "View sample"}
             </Link>
+            <nav className="edition-nav" aria-label="Event editions">
+              <Link href="/" prefetch={false}>
+                All events
+              </Link>
+              <Link href="/career" prefetch={false}>
+                Career events
+              </Link>
+              <Link href="/sample/career" prefetch={false}>
+                Career sample
+              </Link>
+            </nav>
           </div>
         </div>
       </header>
@@ -73,20 +94,32 @@ export function Dashboard({
           <p>
             {sample ? (
               <>
-                <strong>The original startup proof of concept.</strong>{" "}
+                <strong>
+                  {career
+                    ? "A fictional career shortlist."
+                    : "The original startup proof of concept."}
+                </strong>{" "}
                 Fictional events, sample scores & availability. These are not
                 live listings.
               </>
             ) : (
               <>
-                <strong>Current coverage: NYC startup events.</strong> Only
-                reviewed, published listings appear here. Career-profile
-                matching is coming next.
+                <strong>
+                  {career ? "Reviewed career events." : "Reviewed NYC events."}
+                </strong>{" "}
+                Only reviewed, published listings appear here. Career-profile
+                {career
+                  ? " ranking explains the evidence behind each pick."
+                  : " picks have a separate career view."}
               </>
             )}
           </p>
           <span className="demo-badge">
-            {sample ? "STARTUP DEMO" : "DATABASE FEED"}
+            {sample
+              ? career
+                ? "CAREER DEMO"
+                : "STARTUP DEMO"
+              : "PUBLISHED FEED"}
           </span>
         </div>
         <section className="dashboard-intro" aria-labelledby="page-title">
@@ -109,7 +142,13 @@ export function Dashboard({
             <span className="eyebrow">
               {sample ? "THE SAMPLE EDITION" : "THE UPCOMING EDITION"}
             </span>
-            <p>{sample ? "September 1–6, 2026" : "The next 30 days"}</p>
+            <p>
+              {sample
+                ? career
+                  ? "October 1–3, 2026"
+                  : "September 1–6, 2026"
+                : "The next 30 days"}
+            </p>
             <span>For job seekers making their next move.</span>
           </div>
         </section>
@@ -125,7 +164,13 @@ export function Dashboard({
           </div>
           <div>
             <strong>{count(sample ? newCount : scoredCount)}</strong>
-            <span>{sample ? "marked new" : "with networking scores"}</span>
+            <span>
+              {career
+                ? "with career-fit scores"
+                : sample
+                  ? "marked new"
+                  : "with networking scores"}
+            </span>
           </div>
           <div>
             <strong>{count(freeCount)}</strong>
@@ -156,7 +201,11 @@ export function Dashboard({
               </div>
               <span className="sort-label">
                 <ArrowDownWideNarrow size={15} aria-hidden="true" />
-                {sample ? "Networking score ↓" : "Score ↓ · unscored by date"}
+                {career
+                  ? "Career fit ↓ · then date"
+                  : sample
+                    ? "Networking score ↓"
+                    : "Score ↓ · unscored by date"}
               </span>
             </div>
             {result.status === "ready" ? (
@@ -175,7 +224,7 @@ export function Dashboard({
                 )}
               </>
             ) : (
-              <DashboardState status={result.status} />
+              <DashboardState status={result.status} career={career} />
             )}
           </section>
           <aside className="sidebar" aria-label="About your shortlist">
@@ -203,57 +252,82 @@ export function Dashboard({
                 <Radar size={23} aria-hidden="true" />
               </div>
             </section>
-            <section
-              className="score-guide"
-              aria-labelledby="score-guide-title"
-            >
-              <p className="eyebrow">READING THE SIGNAL</p>
-              <h2 id="score-guide-title">What’s in the current score?</h2>
-              <p>
-                {sample
-                  ? "This original startup prototype uses three lenses, each out of 100."
-                  : "The current prototype uses three startup-focused lenses. Unscored does not mean zero."}
-              </p>
-              <dl>
-                <div>
-                  <dt>Networking</dt>
-                  <dd>
-                    Room for meaningful conversations and useful connections.
-                  </dd>
-                </div>
-                <div>
-                  <dt>Founder</dt>
-                  <dd>
-                    Opportunity to meet people building and running startups.
-                  </dd>
-                </div>
-                <div>
-                  <dt>Investor</dt>
-                  <dd>
-                    Opportunity for direct, relevant investor conversations.
-                  </dd>
-                </div>
-              </dl>
-              <div className="score-legend">
+            {career ? (
+              <section
+                className="score-guide"
+                aria-labelledby="career-guide-title"
+              >
+                <p className="eyebrow">READING THE SIGNAL</p>
+                <h2 id="career-guide-title">What makes a useful room?</h2>
                 <p>
-                  <span className="legend-dot exceptional" />
-                  <strong>90–100</strong> Exceptional
+                  Role fit, relevant people, interaction, domain fit, and
+                  practical access contribute to the ranking. Each card shows
+                  its components and cautions.
                 </p>
                 <p>
-                  <span className="legend-dot strong" />
-                  <strong>80–89</strong> Strong
+                  These picks use a product-management and technical-delivery
+                  target profile. A tech talk can qualify without founders or
+                  advertised jobs.
                 </p>
+                <p className="guide-footnote">
+                  {sample
+                    ? "All events and assessments here are fictional illustrations."
+                    : "Scores reflect supported details and human review. They do not predict a job offer or guarantee access to a speaker."}
+                </p>
+              </section>
+            ) : (
+              <section
+                className="score-guide"
+                aria-labelledby="score-guide-title"
+              >
+                <p className="eyebrow">READING THE SIGNAL</p>
+                <h2 id="score-guide-title">What’s in the current score?</h2>
                 <p>
-                  <span className="legend-dot promising" />
-                  <strong>0–79</strong> Explore selectively
+                  {sample
+                    ? "This original startup prototype uses three lenses, each out of 100."
+                    : "The current prototype uses three startup-focused lenses. Unscored does not mean zero."}
                 </p>
-              </div>
-              <p className="guide-footnote">
-                {sample
-                  ? "Sample scores illustrate the original startup concept. They are examples, not measured outcomes or personalized career matches."
-                  : "Scores appear only when available. Personalized career matches are coming next."}
-              </p>
-            </section>
+                <dl>
+                  <div>
+                    <dt>Networking</dt>
+                    <dd>
+                      Room for meaningful conversations and useful connections.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Founder</dt>
+                    <dd>
+                      Opportunity to meet people building and running startups.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Investor</dt>
+                    <dd>
+                      Opportunity for direct, relevant investor conversations.
+                    </dd>
+                  </div>
+                </dl>
+                <div className="score-legend">
+                  <p>
+                    <span className="legend-dot exceptional" />
+                    <strong>90–100</strong> Exceptional
+                  </p>
+                  <p>
+                    <span className="legend-dot strong" />
+                    <strong>80–89</strong> Strong
+                  </p>
+                  <p>
+                    <span className="legend-dot promising" />
+                    <strong>0–79</strong> Explore selectively
+                  </p>
+                </div>
+                <p className="guide-footnote">
+                  {sample
+                    ? "Sample scores illustrate the original startup concept. They are examples, not measured outcomes or personalized career matches."
+                    : "Scores appear only when available. Open Career events for the separate career-fit ranking."}
+                </p>
+              </section>
+            )}
             <section className="local-note">
               <MapPin size={18} aria-hidden="true" />
               <div>

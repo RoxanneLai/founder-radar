@@ -1,10 +1,12 @@
 import type { SourceIdentity } from "./contracts.ts";
+import { ORGANIZER_SOURCES, organizerListing } from "../source-registry.ts";
 
 export const ALLOWED_DOMAINS = [
   "luma.com",
   "lu.ma",
   "meetup.com",
   "eventbrite.com",
+  ...ORGANIZER_SOURCES.map((source) => source.host),
 ];
 export const MAX_RESEARCH_EXCLUSIONS = 50;
 
@@ -25,6 +27,16 @@ export function sourceIdentity(value: string): SourceIdentity | null {
     }
     url.searchParams.sort();
     url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    if (ORGANIZER_SOURCES.some((entry) => entry.host === host)) {
+      const listing = organizerListing(url);
+      return listing
+        ? {
+            source_name: host,
+            source_url: listing.url,
+            external_id: listing.externalId,
+          }
+        : null;
+    }
     let externalId: string | null = null;
     if (host === "meetup.com") {
       externalId = url.pathname.match(/^\/[^/]+\/events\/(\d+)$/)?.[1] ?? null;

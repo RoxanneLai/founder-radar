@@ -13,6 +13,7 @@ import {
 import { createConfiguredIngestionRepository } from "../lib/ingestion/repository.ts";
 import { runIngestion } from "../lib/ingestion/run.ts";
 import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
+import { careerSearchPlan, readCareerTarget } from "../lib/career/profile.ts";
 import type {
   ReasoningEffort,
   RunSummary,
@@ -50,7 +51,15 @@ function printPlan(
         },
         location: "New York City",
         options,
-        limits: API_LIMITS,
+        limits: {
+          ...API_LIMITS,
+          searchToolCalls: options.searches ?? 3,
+          totalSearchResults: (options.searches ?? 3) * 5,
+        },
+        profile: options.profile ?? "founder",
+        planned_queries:
+          options.profile === "career" ? careerSearchPlan(options) : [],
+        executed_queries: null,
         writes: false,
         paid_calls: false,
         next: "Read docs/INGESTION.md before enabling live mode.",
@@ -110,6 +119,8 @@ async function main(): Promise<void> {
     return;
   }
   if (args.live) validateLiveSearchWindow(args.options);
+  if (args.options.profile === "career")
+    args.options.career_target = await readCareerTarget(args.careerConfigPath);
   const settings = await readModelConfig(
     args.configPath,
     args.model,

@@ -10,6 +10,8 @@ export const INGEST_HELP = [
   "npm run ingest -- [--from ISO_TIMESTAMP] [--to ISO_TIMESTAMP] [--limit 1..10]",
   "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",
   "                 [--repair-model vendor/model-id] [--repair-effort level]",
+  "                 [--profile founder|career] [--searches 1..12] [--career-config path]",
+  "Career defaults to a 30-day window; founder defaults to 14 days. Searches are a budget, not a draft guarantee.",
   "Default: print a plan only. No network, database writes, or API credentials needed.",
   "Model and effort independently override config/ingestion.json (or --config).",
   "Repair model and effort are independent overrides used only for one tool-free schema repair.",
@@ -18,10 +20,10 @@ export const INGEST_HELP = [
   "",
   "Add --live AND set FOUNDER_RADAR_ALLOW_PAID_API=1 to permit paid API calls.",
   "A live --from timestamp may be at most 15 minutes old; resolve the window immediately before running.",
-  "Required live environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
+  "Supabase only: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY; SQLite needs no database credentials.",
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",
-  "Limits: 2 normal API requests plus at most 1 tool-free repair, up to 3 hosted searches,",
+  "Limits: 2 normal API requests plus at most 1 tool-free repair; founder up to 3 hosted searches, career up to 12,",
   "        one hosted fetch per selected source, no retries, 5-minute run deadline.",
   "Use --help to show this message. The end timestamp is exclusive.",
 ].join("\n");
@@ -43,6 +45,9 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
         "repair-model": { type: "string" },
         "repair-effort": { type: "string" },
         config: { type: "string" },
+        profile: { type: "string" },
+        searches: { type: "string" },
+        "career-config": { type: "string" },
         live: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
@@ -57,6 +62,21 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     throw new IngestionError("invalid_cli_arguments");
   }
   if (values.help) return { help: true as const };
+  if (
+    values.profile !== undefined &&
+    !["career", "founder"].includes(values.profile)
+  )
+    throw new IngestionError("invalid_cli_arguments");
+  if (
+    values["career-config"] === "" ||
+    (values["career-config"] !== undefined && values.profile !== "career")
+  )
+    throw new IngestionError("invalid_cli_arguments");
+  if (
+    values.searches !== undefined &&
+    !/^(?:[1-9]|1[0-2])$/.test(values.searches)
+  )
+    throw new IngestionError("invalid_cli_arguments");
   if (
     values.model === "" ||
     values.effort === "" ||
@@ -80,6 +100,8 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
   )
     throw new IngestionError("invalid_cli_arguments");
   const defaults = defaultSearchOptions(now);
+  if (values.profile === "career")
+    defaults.to = new Date(now.getTime() + 30 * 86400000).toISOString();
   if ((values.from && !values.to) || (!values.from && values.to))
     throw new IngestionError("provide_both_dates");
   if (values.limit !== undefined && !/^\d+$/.test(values.limit))
@@ -88,6 +110,10 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     from: values.from ?? defaults.from,
     to: values.to ?? defaults.to,
     limit: values.limit === undefined ? defaults.limit : Number(values.limit),
+    ...(values.profile
+      ? { profile: values.profile as "career" | "founder" }
+      : {}),
+    ...(values.searches ? { searches: Number(values.searches) } : {}),
   });
   return {
     help: false as const,
@@ -98,5 +124,6 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     repairModel: values["repair-model"],
     repairEffort: values["repair-effort"],
     configPath: values.config,
+    careerConfigPath: values["career-config"],
   };
 }

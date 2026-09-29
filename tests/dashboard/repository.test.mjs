@@ -9,6 +9,70 @@ import {
 } from "../../lib/dashboard/repository.ts";
 import { env, fakeKey, now, publishedRow } from "./helpers.mjs";
 
+test("Supabase career reads request career ordering and expose no evidence or unassessed drafts", async () => {
+  const assessment = (score) => ({
+    version: "career-score-v1",
+    profile_version: "career-v1",
+    score,
+    components: {
+      role_fit: score,
+      people: 0,
+      interaction: 0,
+      domain: 0,
+      access: 0,
+    },
+    reasons: ["direct_product_fit"],
+    cautions: ["hiring_unknown"],
+    confidence: "needs_checking",
+    founderAccess: "not_applicable",
+    hiring: null,
+  });
+  const fetch = async (input) => {
+    const requested = new URL(String(input));
+    assert.match(
+      requested.searchParams.get("order"),
+      /^career_assessment->score.desc/,
+    );
+    assert.equal(
+      requested.searchParams.get("career_assessment"),
+      "not.is.null",
+    );
+    assert.doesNotMatch(
+      requested.searchParams.get("select"),
+      /raw_payload|content_text|search_runs/,
+    );
+    return Response.json([
+      publishedRow({
+        id: "10000000-0000-4000-8000-000000000001",
+        career_assessment: assessment(20),
+        networking_score: 99,
+      }),
+      publishedRow({
+        id: "10000000-0000-4000-8000-000000000002",
+        career_assessment: assessment(30),
+        networking_score: 1,
+      }),
+      publishedRow({
+        publication_status: "draft",
+        career_assessment: assessment(95),
+        raw_payload: "PRIVATE",
+      }),
+      publishedRow({
+        career_assessment: assessment(100),
+        registration_status: "closed",
+      }),
+      publishedRow(),
+    ]);
+  };
+  const result = await loadDashboard({ env, now, fetch, career: true });
+  assert.equal(result.status, "ready");
+  assert.deepEqual(
+    result.events.map((event) => event.careerAssessment.score),
+    [30, 20],
+  );
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|raw_payload/);
+});
+
 async function temporaryDatabasePath() {
   await mkdir("codex-tmp", { recursive: true });
   const directory = await mkdtemp("codex-tmp/dashboard-sqlite-");

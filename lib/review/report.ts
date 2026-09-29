@@ -2,6 +2,7 @@ import { z } from "zod";
 import { normalizePublishedEvents } from "../dashboard/normalize.ts";
 import { formatEventSchedule, formatStoredPrice } from "../events.ts";
 import { publicListingUrl } from "../public-listing-url.ts";
+import { CAREER_CAUTION_LABELS } from "../career/display.ts";
 
 const sourceSchema = z
   .object({
@@ -44,6 +45,17 @@ export function buildReviewReport(input: unknown, now = new Date()) {
   if (!source || source.event_id !== event.id)
     blockers.push("Select a source linked to this event.");
   else {
+    const payload = source.raw_payload;
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "normalization_notes" in payload &&
+      Array.isArray(payload.normalization_notes) &&
+      payload.normalization_notes.includes("timezone_inferred_nyc")
+    )
+      warnings.push(
+        "Timezone was not stated. America/New_York was inferred from confirmed NYC attendance; check the local clock time before approval.",
+      );
     if (
       !source.content_text?.trim() ||
       !source.fetched_at ||
@@ -90,6 +102,13 @@ export function buildReviewReport(input: unknown, now = new Date()) {
     );
   }
   if (publicCard) {
+    if (publicCard.careerAssessment) {
+      for (const caution of publicCard.careerAssessment.cautions)
+        warnings.push(CAREER_CAUTION_LABELS[caution]);
+      warnings.push(
+        "Career scores are evidence-based ranking hypotheses, not job probabilities or guaranteed access to advertised participants.",
+      );
+    }
     for (const [value, label] of [
       [publicCard.organizer, "Organizer"],
       [publicCard.venue, "Venue"],

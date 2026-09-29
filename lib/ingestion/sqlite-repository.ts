@@ -271,7 +271,35 @@ function writeDraft(
   database
     .prepare("update event_sources set event_id = ? where id = ?")
     .run(id, source.id);
+  database
+    .prepare("update events set career_assessment = ? where id = ?")
+    .run(
+      draft.career_assessment ? jsonText(draft.career_assessment) : null,
+      id,
+    );
   return id;
+}
+
+/** Recovery reuses the normal source/draft write inside its caller's transaction. */
+export function saveRecoveredDraft(
+  database: DatabaseSync,
+  sourceId: string,
+  draft: EventDraft,
+  source: Observation,
+  observedAt: string,
+): string {
+  const row = database
+    .prepare(
+      "select id, event_id, external_id, first_seen_at, last_attempt_at from event_sources where id = ?",
+    )
+    .get(sourceId) as SourceRow | undefined;
+  if (!row || row.event_id !== null)
+    throw new IngestionError("recovery_source_linked");
+  validateObservation(source, draft);
+  updateSource(database, row, source, observedAt);
+  const eventId = writeDraft(database, row, draft, observedAt);
+  if (!eventId) throw new IngestionError("recovery_write_failed");
+  return eventId;
 }
 
 export class SqliteIngestionRepository implements IngestionRepository {
