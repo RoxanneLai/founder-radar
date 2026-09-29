@@ -5,7 +5,7 @@ import { defaultSearchOptions, validateSearchOptions } from "./options.ts";
 import { IngestionError } from "./errors.ts";
 
 export const INGEST_HELP = [
-  "FounderRadar ingestion (local database only)",
+  "RightRoom ingestion (local database only)",
   "",
   "npm run ingest -- [--from ISO_TIMESTAMP] [--to ISO_TIMESTAMP] [--limit 1..10]",
   "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",

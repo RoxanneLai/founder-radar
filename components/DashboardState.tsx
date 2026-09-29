@@ -38,7 +38,7 @@ export function DashboardState({
       aria-busy={status === "loading"}
     >
       <span className="eyebrow">
-        {status === "loading" ? "CHECKING THE RADAR" : "PUBLISHED EVENT FEED"}
+        {status === "loading" ? "CHECKING THE ROOMS" : "PUBLISHED EVENT FEED"}
       </span>
       <h3>{message.title}</h3>
       <p>{message.description}</p>

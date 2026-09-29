@@ -3,9 +3,9 @@ import { Dashboard } from "@/components/Dashboard";
 import { getSampleEvents } from "@/lib/dashboard/sample";
 
 export const metadata: Metadata = {
-  title: "FounderRadar — Sample edition",
+  title: "RightRoom — Sample edition",
   description:
-    "Six fictional NYC event listings with sample scores and availability. Not live events.",
+    "Six fictional NYC startup-event examples from the original prototype. Not live events.",
   robots: { index: false, follow: false },
 };
 

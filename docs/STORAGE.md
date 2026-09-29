@@ -1,6 +1,6 @@
 # Local storage and backend selection
 
-FounderRadar uses SQLite by default. A fresh checkout can run the dashboard, ingestion, run inspection, and review/publication without Docker, a database server, or database credentials. OpenRouter credentials and the explicit paid-call opt-in are still required for live ingestion.
+RightRoom uses SQLite by default. A fresh checkout can run the dashboard, ingestion, run inspection, and review/publication without Docker, a database server, or database credentials. OpenRouter credentials and the explicit paid-call opt-in are still required for live ingestion.
 
 ## SQLite default
 
@@ -30,11 +30,11 @@ DATABASE_BACKEND=supabase npm run dev
 
 The dashboard then requires the local `SUPABASE_URL` and optional anonymous/public key described in [DASHBOARD.md](DASHBOARD.md). Live ingestion requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Review and inspection use the retained local Docker/Postgres workflow. Hosted endpoints remain rejected by these development workflows.
 
-`DATABASE_BACKEND` accepts only `sqlite` or `supabase`. FounderRadar never falls back to the other backend after a connection or configuration failure. Changing this setting does not copy, merge, overwrite, or delete data.
+`DATABASE_BACKEND` accepts only `sqlite` or `supabase`. RightRoom never falls back to the other backend after a connection or configuration failure. Changing this setting does not copy, merge, overwrite, or delete data.
 
 ## Backups
 
-Stop the development server and any FounderRadar CLI using the database before copying it. Copy `data/founder-radar.sqlite` to a private backup location. If `-wal` or `-shm` sidecar files remain, copy them with the database as one set. Restore only while no process has the database open.
+Stop the development server and any RightRoom CLI using the database before copying it. Copy `data/founder-radar.sqlite` to a private backup location. If `-wal` or `-shm` sidecar files remain, copy them with the database as one set. Restore only while no process has the database open.
 
 For a custom `SQLITE_DATABASE_PATH`, back up that path instead. Protect backups like credentials: they contain private evidence even though they do not contain the OpenRouter key.
 
@@ -46,7 +46,7 @@ Import is a separate operator action, never part of backend selection:
 npm run db:import:supabase -- --to data/imported-founder-radar.sqlite
 ```
 
-The command reads only the local `supabase_db_founder-radar` container over its Unix Docker socket. It preserves run IDs, event/source IDs and links, private evidence, run metadata, publication reviews, and approval history. It creates the SQLite schema and refuses a target containing any FounderRadar records. It does not modify Supabase, switch the application backend, publish events, call a model, or delete either database.
+The command reads only the local `supabase_db_founder-radar` container over its Unix Docker socket. It preserves run IDs, event/source IDs and links, private evidence, run metadata, publication reviews, and approval history. It creates the SQLite schema and refuses a target containing any RightRoom records. It does not modify Supabase, switch the application backend, publish events, call a model, or delete either database.
 
 Inspect the imported database before selecting it:
 

@@ -1,14 +1,22 @@
-# FounderRadar
+# RightRoom
 
-**Don’t show me every startup event. Show me the ones worth attending.**
+**Find the events that move your career forward.**
 
-FounderRadar is becoming an event intelligence pipeline for finding and explaining the NYC startup events most worth attending.
+RightRoom is a career-event discovery platform for job seekers who want to get into rooms where relevant people, companies, and professional conversations are already happening. It helps people find worthwhile in-person events where they can learn, build genuine relationships, meet prospective employers, and create opportunities to share what they can contribute.
 
-## Current milestone: local-first event pipeline
+Job boards help people find openings. RightRoom addresses an earlier, less structured question: **which rooms are worth showing up to?** The first target user is a professional making a career transition who has limited time and needs a thoughtful way to prioritize real-world networking opportunities. The longer-term product is intended to generalize through a configurable career profile rather than hard-coded assumptions about one profession or career stage.
 
-V0 is complete: the repository contains a working static Next.js prototype with six fictional events and deterministic ranking. V1 now has a local-first persistence layer, a bounded manually triggered ingestion agent, live draft collection, and a human review boundary. Live runs remain unpublished until explicit approval.
+The project grew out of Roxanne's own search for product management opportunities: finding relevant local communities, meeting people in the field, and creating a natural opportunity to discuss her experience and share a resume. The product direction extends that need to other job seekers. Its guiding question is whether an event offers a useful setting for conversations relevant to someone's next career move.
 
-The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from SQLite by default. The fictional edition is separately available at `http://localhost:3000/sample`. Database errors and an empty feed have distinct states; they never silently substitute sample events. Supabase remains available through explicit configuration.
+> **Naming note:** RightRoom is the product name. Some internal database filenames, ingestion identifiers, Docker resources, migrations, and historical documents still use `founder-radar` or FounderRadar so existing data and workflows remain compatible. Renaming those identifiers is separate from changing the product focus and will be handled deliberately if it becomes worthwhile.
+
+## Current milestone: startup-focused proof of concept
+
+RightRoom began as FounderRadar, a working NYC startup-event prototype. That version established the core product mechanics: a static Next.js experience with six fictional events and deterministic ranking, followed by a local-first persistence layer, bounded agentic discovery, live draft collection, source provenance, and a human review boundary. Live runs remain unpublished until explicit approval.
+
+The current discovery prompts, categories, and scoring lenses are still startup-focused. The next product milestone is to replace those assumptions with career-profile matching while preserving the tested ingestion, validation, evidence, review, and publication pipeline underneath them.
+
+The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from SQLite by default. The fictional startup-focused edition is separately available at `http://localhost:3000/sample`. Database errors and an empty feed have distinct states; they never silently substitute sample events. Supabase remains available through explicit configuration.
 
 See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), [quality-evaluation guide](docs/INGESTION-EVALUATION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
 
@@ -140,16 +148,17 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 
 | Status                 | Scope                                                                                                             |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Completed              | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                            |
+| Completed              | FounderRadar startup-event proof of concept; database schema, provenance, fixture seeds, and contract tests       |
 | Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests |
-| Next                   | Verify the current draft, then classify recent candidate losses and improve discovery recall                      |
+| Current                | RightRoom product positioning for job seekers choosing high-value in-person professional events                   |
+| Next                   | Configurable career profile, profile-aware discovery and ranking, and career-focused sample experiences           |
 | Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
 | Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
 | Implemented and tested | Read-only SQLite quality evaluation with recent-cohort, conversion, compatibility, usage, and cost metrics        |
-| Later                  | Structured scoring, additional providers, cross-source deduplication, scheduling, and personalization             |
+| Later                  | Additional providers, cross-source deduplication, scheduling, and broader personalization                         |
 
 The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` exercised the generalized JSON repair boundary end to end: one unfamiliar extraction structure became one canonical, scalar-preserving draft with no errors. The draft remains private pending manual comparison with its current Meetup page. Interrupted runs can be listed, previewed, and explicitly closed without deleting their audit history. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
 
-The original [V0 walkthrough](docs/archive/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/archive/V0-COMPLETE-CODE.md) are archived records of the browser-based ChatGPT development phase. Their contents are intentionally preserved, including obsolete commands and setup details. Use this README and the actual source files for current development. The formatter skips `docs/archive/` to avoid rewriting those snapshots.
+The original FounderRadar [V0 walkthrough](docs/archive/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/archive/V0-COMPLETE-CODE.md) are archived records of the browser-based ChatGPT development phase. Their contents are intentionally preserved, including the former product name, obsolete commands, and setup details. Use this README and the actual source files for current development. The formatter skips `docs/archive/` to avoid rewriting those snapshots.

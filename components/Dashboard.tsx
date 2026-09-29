@@ -37,12 +37,12 @@ export function Dashboard({
       </a>
       <header className="site-header">
         <div className="page-shell flex flex-wrap items-center justify-between gap-4">
-          <Link href="/" className="brand" aria-label="FounderRadar home">
+          <Link href="/" className="brand" aria-label="RightRoom home">
             <span className="brand-mark">
               <Radar size={25} strokeWidth={1.5} aria-hidden="true" />
             </span>
             <span>
-              Founder<span className="brand-light">Radar</span>
+              Right<span className="brand-light">Room</span>
               <span className="brand-period">.</span>
             </span>
           </Link>
@@ -73,26 +73,27 @@ export function Dashboard({
           <p>
             {sample ? (
               <>
-                <strong>A look at what’s possible.</strong> Fictional events,
-                sample scores & availability. These are not live listings.
+                <strong>The original startup proof of concept.</strong>{" "}
+                Fictional events, sample scores & availability. These are not
+                live listings.
               </>
             ) : (
               <>
-                <strong>Published listings only.</strong> Drafts and sample
-                events stay out of this feed. Scores and prices appear only when
-                available.
+                <strong>Current coverage: NYC startup events.</strong> Only
+                reviewed, published listings appear here. Career-profile
+                matching is coming next.
               </>
             )}
           </p>
           <span className="demo-badge">
-            {sample ? "DEMO DATA" : "DATABASE FEED"}
+            {sample ? "STARTUP DEMO" : "DATABASE FEED"}
           </span>
         </div>
         <section className="dashboard-intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">
               <span />
-              THE NYC STARTUP SHORTLIST
+              THE NYC CAREER-EVENT SHORTLIST
             </p>
             <h1 id="page-title">
               Less noise.
@@ -100,8 +101,8 @@ export function Dashboard({
               <span>Better rooms.</span>
             </h1>
             <p className="intro-description">
-              Don’t show me every startup event.
-              <br className="sm:hidden" /> Show me the ones worth attending.
+              Find the events that move your career forward.
+              <br className="sm:hidden" /> Meet relevant people, in person.
             </p>
           </div>
           <div className="edition-note">
@@ -109,7 +110,7 @@ export function Dashboard({
               {sample ? "THE SAMPLE EDITION" : "THE UPCOMING EDITION"}
             </span>
             <p>{sample ? "September 1–6, 2026" : "The next 30 days"}</p>
-            <span>For founders, builders & the startup-curious.</span>
+            <span>For job seekers making their next move.</span>
           </div>
         </section>
         <div
@@ -179,7 +180,7 @@ export function Dashboard({
           </section>
           <aside className="sidebar" aria-label="About your shortlist">
             <section className="field-note">
-              <span className="eyebrow">THE FOUNDERRADAR FILTER</span>
+              <span className="eyebrow">THE RIGHTROOM FILTER</span>
               <ArrowUpRight
                 className="note-arrow"
                 size={27}
@@ -193,11 +194,12 @@ export function Dashboard({
                 your calendar.
               </h2>
               <p>
-                The best event isn’t always the biggest. It’s the one where you
-                find your people.
+                The best professional event isn’t always the biggest. It’s the
+                one where you can learn, meet relevant people, and have a real
+                conversation.
               </p>
               <div className="note-bottom">
-                <span>Fewer events. Better connections.</span>
+                <span>Fewer events. Better career connections.</span>
                 <Radar size={23} aria-hidden="true" />
               </div>
             </section>
@@ -206,11 +208,11 @@ export function Dashboard({
               aria-labelledby="score-guide-title"
             >
               <p className="eyebrow">READING THE SIGNAL</p>
-              <h2 id="score-guide-title">What’s in a score?</h2>
+              <h2 id="score-guide-title">What’s in the current score?</h2>
               <p>
                 {sample
-                  ? "Every card shows three different lenses, each out of 100."
-                  : "When available, scores offer three lenses, each out of 100. Unscored does not mean zero."}
+                  ? "This original startup prototype uses three lenses, each out of 100."
+                  : "The current prototype uses three startup-focused lenses. Unscored does not mean zero."}
               </p>
               <dl>
                 <div>
@@ -248,8 +250,8 @@ export function Dashboard({
               </div>
               <p className="guide-footnote">
                 {sample
-                  ? "Sample scores are hand-authored examples, not measured outcomes, AI results, or a calculated average."
-                  : "Automated scoring is not enabled. This feed displays only saved scores and explanations; it never invents them."}
+                  ? "Sample scores illustrate the original startup concept. They are examples, not measured outcomes or personalized career matches."
+                  : "Scores appear only when available. Personalized career matches are coming next."}
               </p>
             </section>
             <section className="local-note">
@@ -271,8 +273,8 @@ export function Dashboard({
       <footer className="page-shell site-footer">
         <p>
           <Radar size={17} aria-hidden="true" />
-          <strong>FounderRadar</strong>
-          <span>Find your people.</span>
+          <strong>RightRoom</strong>
+          <span>Move your career forward.</span>
         </p>
         <span>
           {sample

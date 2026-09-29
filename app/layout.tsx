@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FounderRadar",
+  title: "RightRoom",
   description:
-    "A shortlist of published NYC startup events. Explore upcoming events and a separately labeled fictional sample edition.",
+    "A career-event discovery platform for finding worthwhile in-person professional events in New York City.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 

@@ -1,5 +1,11 @@
 # Database-backed dashboard
 
+## RightRoom product focus
+
+RightRoom helps job seekers choose worthwhile in-person professional events. The current feed still covers NYC startup events, and `/sample` demonstrates the original startup-focused proof of concept. The interface identifies this coverage and retains the existing networking, founder, and investor score meanings. Career-profile matching and career-specific scoring remain upcoming work; the rebrand does not change discovery eligibility, stored scores, or publication rules.
+
+The product name, page titles, recommendations, and job-seeker messaging use RightRoom. Internal database filenames and service identifiers retain `founder-radar` for compatibility with existing local data. See the [README](../README.md) for the audience, product direction, and roadmap.
+
 ## What changed
 
 The main route (`/`) reads the selected local database at request time. SQLite is the default; Supabase remains optional. The original fictional edition is at `/sample`, with clear labels, no registration links, and indexing disabled. There is no automatic sample fallback when the database is empty or unavailable.

@@ -70,7 +70,7 @@ export function EventCard({
           <h4>
             <Sparkles size={14} aria-hidden="true" />
             {event.recommendation
-              ? "Why FounderRadar recommends it"
+              ? "Why RightRoom recommends it"
               : "Recommendation pending"}
           </h4>
           <p>

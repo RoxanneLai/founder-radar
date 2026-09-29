@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 
 export function assertDashboardHtml(html) {
-  assert.match(html, /<title>FounderRadar — Sample edition<\/title>/);
+  assert.match(html, /<title>RightRoom — Sample edition<\/title>/);
   assert.doesNotMatch(html, /codex-preview|Starter Project/);
+  assert.match(html, /RightRoom/);
+  assert.doesNotMatch(html, /FounderRadar/);
+  assert.match(html, /original startup proof of concept/i);
   assert.match(html, /Fictional events, sample scores/);
   assert.match(html, /These are not live listings/);
   assert.match(html, /Sample edition · All listings are fictional/);
