@@ -155,7 +155,7 @@ npm run test:next
 
 ### SQLite-default checkpoint — September 26, 2026
 
-Formatting, lint, TypeScript, and all 108 normal offline tests pass. The optional Supabase suite also passes: 145 pgTAP assertions plus five isolated runner tests, including the real Supabase review CLI. The production build, two built-output checks, seven runtime dashboard checks, and a credential-free fresh SQLite production-server smoke check pass. The build ran from an ignored clean copy because the app sandbox could not remove an older `.next/diagnostics` directory in the working checkout; that filesystem limitation is unrelated to the source or build output. No paid request or existing database write was made.
+Formatting, lint, TypeScript, and all 112 normal offline tests pass. The optional Supabase suite also passes: 145 pgTAP assertions plus five isolated runner tests, including the real Supabase review CLI. The production build, two built-output checks, seven runtime dashboard checks, and a credential-free fresh SQLite production-server smoke check pass. The build ran from an ignored clean copy because the app sandbox could not remove an older `.next/diagnostics` directory in the working checkout; that filesystem limitation is unrelated to the source or build output. No paid request or existing database write was made.
 
 ### OpenRouter implementation checkpoint — September 2, 2026
 
@@ -186,6 +186,18 @@ npm run ingest:recover -- cancel --run RUN_UUID --revision PREVIEW_REVISION --ap
 List and preview are read-only. Cancellation performs one local revision-checked update only when the selected run is still `running` and unchanged since preview. It preserves the run, sources, events, metadata, and prior error text; sets status to `cancelled`; and adds a bounded `run_cancelled` operator-recovery audit marker. It never retries provider work. SQLite is the default, while explicit Supabase mode retains the local-Docker-only boundary. Do not use recovery to stop an active process.
 
 The inspector reads the selected backend and reports the run's parameters, safe provider diagnostics, provider-reported usage totals, and current identities/linkage for at most 50 sources. SQLite needs no Docker; Supabase inspection uses a read-only local Docker transaction. It never returns research text, source content, raw payloads, credentials, prompts, or reasoning traces. A source touched by a later run reflects its current linkage and last-attempt state, not a historical snapshot.
+
+## Evaluate historical quality offline
+
+Use the read-only SQLite evaluator before making another round of prompt, extraction, or model changes:
+
+```bash
+DATABASE_BACKEND=sqlite \
+SQLITE_DATABASE_PATH=data/imported-founder-radar.sqlite \
+npm run ingest:evaluate -- run
+```
+
+It reports historical and latest-five-terminal-run discovery fill, usable draft writes, deterministic loss categories, repair dependence, provider-reported tokens/cost, and current linkage state. It reads only allowlisted summary fields and optional ignored checkpoints, then writes an owner-only aggregate report to `codex-tmp/ingestion-quality-report.json`. No run IDs, source URLs, event facts, research text, raw errors, or credentials enter that report. It makes no network requests, paid calls, database writes, or publication changes. See the [evaluation guide](INGESTION-EVALUATION.md) for definitions, limitations, and the current evidence-based priorities.
 
 ### Safe diagnostics for rejected responses
 

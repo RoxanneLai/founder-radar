@@ -10,7 +10,7 @@ V0 is complete: the repository contains a working static Next.js prototype with 
 
 The main dashboard at `http://localhost:3000` reads published, non-fixture NYC events from SQLite by default. The fictional edition is separately available at `http://localhost:3000/sample`. Database errors and an empty feed have distinct states; they never silently substitute sample events. Supabase remains available through explicit configuration.
 
-See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
+See [the storage guide](docs/STORAGE.md) for SQLite, backend selection, import, backups, and deployment limits. The [dashboard guide](docs/DASHBOARD.md), [ingestion guide](docs/INGESTION.md), [quality-evaluation guide](docs/INGESTION-EVALUATION.md), and [review guide](docs/REVIEW-PUBLISH.md) cover each workflow. Historical readiness and integration checkpoints describe the earlier Supabase-first implementation.
 
 The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator list upcoming and expired drafts separately, inspect private evidence, preview public card data, and explicitly approve one event for publication. Only the reviewed canonical listing URL becomes public; stale approvals are rejected. Run `npm run review` for offline help. No real events were published during the historical [overnight verification](docs/REVIEW-PUBLISH-PROGRESS.md).
 
@@ -23,6 +23,8 @@ npm run ingest -- --limit 3
 After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a safely source-scoped noncanonical JSON response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
 
 Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
+
+Historical ingestion quality can be measured offline with `npm run ingest:evaluate -- run`. The evaluator opens the selected SQLite database read-only, merges only allowlisted aggregate fields from ignored checkpoints, and writes an owner-only aggregate report under `codex-tmp/`. It does not read a key, contact a provider, modify the database, or publish events.
 
 ## Run the web application
 
@@ -138,10 +140,11 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Completed              | V0 static dashboard; V1 database schema, provenance, fixture seeds, and contract tests                            |
 | Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests |
-| Next                   | Manually verify the current accepted draft, then decide separately whether to publish it                          |
+| Next                   | Verify the current draft, then classify recent candidate losses and improve discovery recall                      |
 | Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states        |
 | Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links     |
-| Later                  | Structured scoring, additional providers, cross-source deduplication, scheduling, personalization, and evaluation |
+| Implemented and tested | Read-only SQLite quality evaluation with recent-cohort, conversion, compatibility, usage, and cost metrics        |
+| Later                  | Structured scoring, additional providers, cross-source deduplication, scheduling, and personalization             |
 
 The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` exercised the generalized JSON repair boundary end to end: one unfamiliar extraction structure became one canonical, scalar-preserving draft with no errors. The draft remains private pending manual comparison with its current Meetup page. Interrupted runs can be listed, previewed, and explicitly closed without deleting their audit history. Real event collection does not depend on finishing AI scoring first.
 
