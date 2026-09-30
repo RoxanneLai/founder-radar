@@ -31,7 +31,7 @@ npm run ingest -- --limit 3
 npm run ingest -- --profile career --searches 3 --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes two primary requests and, only for a safely source-scoped noncanonical JSON response, at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected.
+After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes one research request, captures bounded public listing text privately, then makes one tool-free extraction request if any captures succeed. A safely source-scoped noncanonical JSON response may trigger at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected. See [source evidence](docs/SOURCE-EVIDENCE.md) for capture limits, failure behavior, and historical compatibility; this new capture path has offline verification, not a completed live acceptance run.
 
 Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
 
@@ -100,7 +100,7 @@ This command does not reset or deploy a hosted Supabase project.
 The schema is designed for discovery before normalization:
 
 1. A discovery agent creates a `search_runs` record.
-2. Each selected listing is upserted into `event_sources` with its URL, provider identity, model-generated evidence report, and hosted source-fetch metadata.
+2. Each selected listing is upserted into `event_sources` with its URL and provider identity. New live runs retain bounded source-page text privately in run metadata; successful drafts retain that snapshot on their source. Historical runs retain their original model-report evidence format.
 3. A source may remain unlinked while extraction is incomplete.
 4. Normalized sources are linked to canonical `events` records.
 5. Only events explicitly marked `published` are readable through the public application role.

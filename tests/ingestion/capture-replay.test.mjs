@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import {
   parseCaptureReplayOptions,
   runCaptureReplayCli,
@@ -16,7 +17,7 @@ async function temporaryDirectory() {
   return mkdtemp("codex-tmp/capture-replay-test-");
 }
 
-function seedRun(path) {
+function seedRun(path, metadata = {}) {
   const database = openSqliteDatabase(path);
   database
     .prepare(
@@ -44,6 +45,7 @@ function seedRun(path) {
         research_report: report,
         consulted_urls: [url],
         summary: { errors: ["invalid_extraction_shape"] },
+        ...metadata,
       }),
       "2026-09-01T00:00:00.000Z",
       "2026-09-01T00:01:00.000Z",
@@ -158,6 +160,72 @@ test("current bounded repair can normalize an unfamiliar captured candidate", as
     replay.cases[0].provider_diagnostics[1].repair_validation,
     "accepted",
   );
+});
+
+test("new source-page replay uses saved page evidence rather than a sparse discovery report", async () => {
+  const directory = await temporaryDirectory();
+  const databasePath = join(directory, "history.sqlite");
+  const capturePath = join(directory, "canonical.json");
+  const manifestPath = join(directory, "manifest.json");
+  const outputPath = join(directory, "report.json");
+  const text = report + " PRIVATE_SNAPSHOT_TEXT";
+  const hash = createHash("sha256").update(text).digest("hex");
+  seedRun(databasePath, {
+    evidence_kind: "source_page_text_v1",
+    research_report: "Sparse discovery with no supported event facts.",
+    evidence_observed_at: "2026-09-01T00:01:00Z",
+    source_pages: [
+      {
+        evidence_kind: "source_page_text_v1",
+        source_url: url,
+        retrieval_url: url,
+        final_url: url,
+        fetched_at: "2026-09-01T00:00:30Z",
+        http_status: 200,
+        content_type: "text/html",
+        response_bytes: Buffer.byteLength(text),
+        redirects: 0,
+        body_hash: hash,
+        text_hash: hash,
+        text,
+      },
+    ],
+  });
+  await writeCapture(capturePath, { candidates: [candidate()] });
+  await writeManifest(manifestPath, [capturePath]);
+  const result = await runCaptureReplayCli(
+    ["run", "--manifest", manifestPath, "--output", outputPath],
+    {
+      DATABASE_BACKEND: "sqlite",
+      SQLITE_DATABASE_PATH: databasePath,
+    },
+  );
+  assert.equal(result.usable_events_under_current_validation, 1);
+  const output = await readFile(outputPath, "utf8");
+  assert.ok(!output.includes("PRIVATE_SNAPSHOT_TEXT"));
+  assert.equal(
+    JSON.parse(output).cases[0].provider_diagnostics[0].fetch_verification,
+    "local_source_capture",
+  );
+  const db = openSqliteDatabase(databasePath);
+  db.prepare("update search_runs set metadata = ? where id = ?").run(
+    JSON.stringify({
+      evidence_kind: "source_page_text_v1",
+      research_report: report,
+      consulted_urls: [url],
+    }),
+    runId,
+  );
+  db.close();
+  const invalid = await runCaptureReplayCli(
+    ["run", "--manifest", manifestPath, "--output", outputPath],
+    {
+      DATABASE_BACKEND: "sqlite",
+      SQLITE_DATABASE_PATH: databasePath,
+    },
+  );
+  assert.equal(invalid.outcome_counts.invalid_context, 1);
+  assert.equal(invalid.usable_events_under_current_validation, 0);
 });
 
 test("offline replay reports safe JSON formatting diagnostics without accepting fenced content", async () => {

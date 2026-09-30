@@ -26,7 +26,7 @@ function runCli(cwd, args, env = {}) {
       "--experimental-strip-types",
       "--input-type=module",
       "-e",
-      `globalThis.fetch = async () => { throw new Error('unexpected network request'); }; process.argv = ['node', 'ingest', ...${JSON.stringify(args)}]; await import(${JSON.stringify(entry)});`,
+      `import https from 'node:https'; import dns from 'node:dns/promises'; const blocked = () => { throw new Error('unexpected network request'); }; globalThis.fetch = blocked; https.request = blocked; dns.lookup = blocked; process.argv = ['node', 'ingest', ...${JSON.stringify(args)}]; await import(${JSON.stringify(entry)});`,
     ],
     {
       cwd,
@@ -63,6 +63,13 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(JSON.parse(plan.stdout).repair.effort, "none");
   assert.equal(JSON.parse(plan.stdout).paid_calls, false);
   assert.equal(JSON.parse(plan.stdout).writes, false);
+  assert.equal(JSON.parse(plan.stdout).evidence.kind, "source_page_text_v1");
+  assert.equal(JSON.parse(plan.stdout).evidence.extraction_tools, false);
+  assert.equal(JSON.parse(plan.stdout).limits.fetchToolCalls, 0);
+  assert.equal(
+    JSON.parse(plan.stdout).evidence.source_capture.responseBytes,
+    1048576,
+  );
   const override = runCli(dir, ["--model", "google/test-model"]);
   assert.equal(override.status, 0, override.stderr);
   assert.equal(JSON.parse(override.stdout).model, "google/test-model");

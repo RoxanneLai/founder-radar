@@ -6,6 +6,8 @@ The implementation is a manually triggered ingestion command using **OpenRouter*
 
 **Live discovery, extraction, generalized schema repair, draft persistence, and repeat-run deduplication now work.** Fresh-window acceptance run `edc10f58-32cd-4ab6-9f50-4317358c5139` succeeded: it refreshed one exact Meetup source, wrote one private draft, and recorded no errors after a bounded repair converted an unfamiliar valid-JSON shape into one canonical candidate with zero scalar mismatches. Manual verification of that listing and an explicit publication decision remain human steps. Candidate-specific repair isolation still ensures that safe canonical siblings continue while unusable siblings remain source-only; invented repair values are never returned.
 
+That acceptance used the historical hosted-fetch/report evidence path. New live commands now use independent bounded page capture and tool-free extraction, described below. This new path has offline verification only; it still requires a separately approved live acceptance run. Historical founder success is not proof of career discovery quality or current source retrievability.
+
 ## What happens in one run
 
 1. Validate the search dates and result limit. In live mode, reject a search start more than 15 minutes old before reading credentials, contacting the database, or making a paid request; then create a search-run record.
@@ -14,10 +16,10 @@ The implementation is a manually triggered ingestion command using **OpenRouter*
    Verify reported search counts against the configured budget. When absent/null, require provider citations bounded to five per budgeted search and at least one supported listing URL. Founder defaults to three searches; career supports up to twelve. Request tool/result bounds remain enforced; missing executed queries/counters stay unknown.
 4. Intersect individual event URLs named in the report with returned URL-citation annotations, preserving the report's numbered event order and selecting one primary listing per event section. Duplicate-platform/background citations, plain URLs invented in the report, excluded canonical URLs, tracking aliases, and alternate Meetup identities with the same event ID cannot become candidates. Cap retained candidates at the requested limit.
 5. Save the research report and consulted URLs privately in the search run. Persist candidate sources before extraction.
-6. Make one structured-output request with OpenRouter's `openrouter:web_fetch` server tool. Request every selected listing exactly once through the free direct-fetch engine, restricted to the listing allowlist and bounded content size.
-7. Return exactly one bounded verdict per source. Founder candidates need positive founder-audience relevance; career candidates instead need supported product/technical-delivery relevance and keep founder-audience relevance unknown. The complete selected schema appears in prompts and `response_format`. Facts must be confirmed by the fetched page. Rejected fetches/conflicts/past/cancelled/virtual/insufficient listings carry allowlisted codes and no facts.
+6. Capture each selected public HTTPS listing directly with bounded time, body size, text size, DNS validation, and same-identity redirects. Keep source identity separate from the cited retrieval hostname, preserving `www` when supplied. Retain extracted page text privately in run metadata. A failed capture stays source-only and preserves earlier good evidence; if every capture fails, skip extraction. There is no hosted-fetch fallback or automatic retry. See [source evidence](SOURCE-EVIDENCE.md).
+7. Make one tool-free structured-output request with the successfully captured pages, returning exactly one bounded verdict per supplied source. Founder candidates need positive founder-audience relevance; career candidates instead need supported product/technical-delivery relevance and keep founder-audience relevance unknown. The complete selected schema appears in prompts and `response_format`. Facts and exact quotes must be supported by that source's captured text. Discovery-report omissions do not invalidate supported page facts. Rejected conflicts/past/cancelled/virtual/insufficient listings carry allowlisted codes and no facts.
 8. If the parsed response is valid JSON but has an unfamiliar outer structure or source-complete noncanonical candidates, make at most one tool-free repair request using the configured repair model. It receives only the bounded extraction JSON and expected URLs. For one source, the complete response is its evidence scope. For multiple sources, local code must first isolate exactly one unambiguous JSON subtree containing a verification verdict for every trusted URL; otherwise it fails before repair. The repaired batch must retain exact, unique trusted-source coverage. Each repaired sibling is applied only when it independently satisfies the canonical schema and merely rearranges scalars already present in its corresponding source scope. A scalar-changing or malformed sibling from a recognized candidate array reverts to its unchanged original; one from an unfamiliar wrapper becomes a source-only placeholder with no event facts. Safe repaired siblings continue. Malformed JSON, ambiguous or incomplete multi-source structures, and responses without an existing verification verdict fail closed. If no canonical original or fact-preserving repair remains usable, fail closed.
-9. Verify the reported fetch count when present. When it is absent/null, require exact, unique verdict coverage for every supplied source under the request's required-tool and per-source tool-call bounds.
+9. Require trusted, unique source coverage and reject reported tool use in captured-page extraction before any repair. Safe extraction diagnostics identify `fetch_verification: local_source_capture`; missing provider counters remain unknown. The legacy provider path used by historical replays without page snapshots retains its hosted-fetch count/verdict gates and is not a fallback for new live runs.
 10. Validate title, time, profile relevance, city, format, window, and that the event starts after observation. Confirmed physical NYC events with date/clock time may default an unstated timezone, recorded separately with review cautions. Conflicting zones/offsets and DST gaps/overlaps fail. Save drafts; retain rejected/incomplete sources with safe diagnostics.
 11. Finish with counts, safe error codes, model usage when available, and a local recovery checkpoint.
 
@@ -25,9 +27,11 @@ The provider adapter never writes to the database. The selected repository owns 
 
 ### Evidence is not a page archive
 
-This version stores **model-generated web-search reports**, not page archives. `content_text` stores that report and new successful observations use `raw_payload.evidence_kind: model_web_search_report_with_source_fetch`; the allowlisted extraction metadata records the fetch-verification mode and reported count when present. OpenRouter provides page text to the model but not to the repository, so `fetched_at` is an evidence timestamp rather than proof of a retained HTTP response and `http_status` remains unknown. Supporting quotes must occur in the report and be confirmed by the fetched page, but the model still interprets both inputs.
+New live runs store bounded, independently captured static page text as `source_page_text_v1`, separate from the model-generated discovery report. The private snapshot records sanitized retrieval/final URLs, actual capture time, HTTP status/content type, byte count, redirect count, and body/text hashes. Successful source `content_text` is that captured text; `raw_payload.source_page` holds its snapshot. Search-run metadata retains successful captures even when later extraction fails. This is not raw HTML, a browser-rendered archive, or proof of listing accuracy. The source's top-level `fetched_at` remains the evidence-observation timestamp; actual capture time and HTTP status live in the private snapshot, not a new top-level database field.
 
-Review drafts against their original links before publishing. The fetch gate rejects reported conflicts and missing fetches, but it is not an independent page archive or a guarantee against model error. Search is not an exhaustive provider feed. Same-event deduplication across platforms and recurring-event identity remain future work.
+Historical runs still store model-generated reports with their original evidence kinds, including `model_web_search_report_with_source_fetch`. They are not relabeled as page captures. Historical report-based quote and hosted-fetch validation remain available for offline replay. New captured-page replays use the saved source text and fail closed when the snapshot is missing or invalid.
+
+Review drafts against their original links before publishing. Capture failure and quote grounding are safeguards, not guarantees against model or listing errors. Search is not an exhaustive provider feed. Same-event deduplication across platforms and recurring-event identity remain future work.
 
 Research and extraction must use the event date's explicitly stated year, never a current/search-window year, URL, or copyright footer. Extraction must reject an explicitly past page even if research rolled it forward. Local normalization also rejects a recognized English/ISO date year in the start-time quote that contradicts the NYC event year, using `source_page_conflict`. UTC timestamps are compared in NYC time across year boundaries. This narrow contradiction check does not parse arbitrary languages/date formats or independently authenticate the page; a consistently wrong report still needs source verification and human review.
 
@@ -54,7 +58,7 @@ npm ci
 npm run ingest -- --limit 3
 ```
 
-Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, proposed search, and limits. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
+Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, proposed search, capture evidence kind/limits, tool-free extraction setting, and API bounds. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
 
 Plan mode also does not create or open SQLite and does not read `DATABASE_BACKEND`, `SQLITE_DATABASE_PATH`, or Supabase credentials.
 
@@ -126,31 +130,33 @@ Resolve or copy the exact date window immediately before starting live mode. A l
 
 ## Bounds and failure behavior
 
-| Limit                      | Current value                                             |
-| -------------------------- | --------------------------------------------------------- |
-| Retained candidate sources | 1–10; default 10                                          |
-| Search interval            | More than zero, at most 31 days                           |
-| Live start freshness       | No more than 15 minutes before command execution          |
-| OpenRouter API requests    | Two primary requests plus at most one conditional repair  |
-| Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses` |
-| Hosted source fetches      | Exactly one per retained source; at most 10               |
-| Fetched-page content       | At most 6,000 approximate tokens per fetch                |
-| Search results             | At most 5 per search, 15 total                            |
-| Search-result content      | At most 2,000 characters per result                       |
-| Research output tokens     | At most 6,000                                             |
-| Extraction output tokens   | At most 12,000                                            |
-| Repair input text          | At most 60,000 characters                                 |
-| Repair output tokens       | At most 6,000                                             |
-| Research text accepted     | At most 40,000 characters                                 |
-| API response body          | At most 1 MiB before JSON parsing                         |
-| Provider request timeout   | 120 seconds                                               |
-| Database request timeout   | 15 seconds                                                |
-| Run cancellation deadline  | 5 minutes, followed by bounded database finalization      |
-| Automatic API retries      | None, including quota/rate errors                         |
+| Limit                      | Current value                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Retained candidate sources | 1–10; default 10                                                                 |
+| Search interval            | More than zero, at most 31 days                                                  |
+| Live start freshness       | No more than 15 minutes before command execution                                 |
+| OpenRouter API requests    | One research, one extraction if captures succeed, at most one conditional repair |
+| Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses`                        |
+| Direct source capture      | At most 10 listings; 20 seconds each including redirects                         |
+| Capture redirects          | At most 2, same canonical listing identity only                                  |
+| Capture body / text        | 1 MiB response; 16,000 text characters/page; 80,000 total                        |
+| Hosted extraction fetches  | None in new live runs; legacy replay retains old bounds                          |
+| Search results             | At most 5 per search, 15 total                                                   |
+| Search-result content      | At most 2,000 characters per result                                              |
+| Research output tokens     | At most 6,000                                                                    |
+| Extraction output tokens   | At most 12,000                                                                   |
+| Repair input text          | At most 60,000 characters                                                        |
+| Repair output tokens       | At most 6,000                                                                    |
+| Research text accepted     | At most 40,000 characters                                                        |
+| API response body          | At most 1 MiB before JSON parsing                                                |
+| Provider request timeout   | 120 seconds                                                                      |
+| Database request timeout   | 15 seconds                                                                       |
+| Run cancellation deadline  | 5 minutes, followed by bounded database finalization                             |
+| Automatic API retries      | None, including quota/rate errors                                                |
 
-These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while executing hosted tools. Input, model output and hosted search can be billed, even when validation later rejects the result. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify the requested limits, but live enforcement still needs confirmation. The adapter rejects reported zero/invalid/over-budget search or fetch counts. When a counter is missing, the compatibility checks below verify bounded response evidence rather than inventing a count; enforcement then relies partly on OpenRouter's documented `max_uses`, `max_tool_calls`, required-tool, and domain-filter behavior. Exa remains fixed for search and OpenRouter's direct engine remains fixed for fetch. No credit exhaustion, rate limit or other failure is automatically retried.
+These are work/request bounds, **not a dollar-accurate billing cap**. OpenRouter may perform several internal model turns while researching. Input, model output and hosted search can be billed, even when validation later rejects the result. Captured text increases extraction input. Check current model/tool pricing and account billing controls before enabling live calls. Offline transport tests verify requested limits, but live enforcement still needs confirmation. The adapter rejects reported zero/invalid/over-budget search counts; missing counts require bounded citation evidence rather than an invented count. Exa remains fixed for search. New source capture makes no LLM call; extraction is tool-free. No credit exhaustion, rate limit or other failure is automatically retried.
 
-The application's requests go only to the fixed `https://openrouter.ai/api/v1/chat/completions` endpoint; redirects are rejected. It never fetches model-provided URLs from the local process. Source access uses hosted tools restricted to Luma, Meetup, Eventbrite, and the verified organizer registry; requests supply canonical individual URLs selected from trusted annotations. A reported fetch count must match the source count; when absent, exact unique verdict coverage is mandatory. Reports/pages are untrusted data, never instructions to change database operations or publication status.
+Model requests use only the fixed `https://openrouter.ai/api/v1/chat/completions` endpoint; redirects are rejected. New live runs separately retrieve annotated, report-selected public listing URLs restricted to Luma, Meetup, Eventbrite, and the organizer registry. Every connection pins a validated public DNS address and verifies TLS; redirects must retain the exact canonical listing identity. No credentials, cookies, proxy agent, or arbitrary private query values are forwarded. Reports/pages are untrusted data, never instructions to change database operations or publication status. Historical replay keeps the old hosted-fetch behavior, without real network access.
 
 Failed or discovery-only observations preserve earlier successful content, retrieval time, and event links. New valid observations update draft facts. Published, archived, and fixture events are not rewritten by the agent. An older observation cannot overwrite a newer one. Conflicting URL/external-ID identities are rejected for review, not automatically merged.
 

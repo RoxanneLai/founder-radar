@@ -163,6 +163,8 @@ export type Research = {
   report: string;
   urls: string[];
   metadata: Json;
+  retrieval_urls?: Record<string, string>;
+  source_pages?: import("./source-page.ts").CapturedSourcePage[];
 };
 
 export type Extraction = {
@@ -216,7 +218,10 @@ export type ProviderDiagnostic = {
   search_verification?: "usage_counter" | "bounded_citations";
   fetch_usage: "missing" | "invalid" | "reported";
   fetch_tool_calls: number | null;
-  fetch_verification?: "usage_counter" | "required_tool_and_source_coverage";
+  fetch_verification?:
+    | "usage_counter"
+    | "required_tool_and_source_coverage"
+    | "local_source_capture";
   extraction_shape:
     | "candidates_object"
     | "schema_named_object"
@@ -296,6 +301,7 @@ export type RunSummary = {
   errors: string[];
   provider_diagnostics?: ProviderDiagnostic[];
   candidate_validation_failures?: CandidateValidationFailure[];
+  source_capture_diagnostics?: import("./source-page.ts").SourceCaptureDiagnostic[];
 };
 
 export type CandidateValidationFailure = {

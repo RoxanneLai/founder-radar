@@ -23,6 +23,7 @@ import { normalizeCandidate } from "./normalize.ts";
 import { OpenRouterSearchProvider } from "./openrouter-provider.ts";
 import { validateSearchOptions } from "./options.ts";
 import { selectSources } from "./sources.ts";
+import { capturedPageSchema, validateCapturedPages } from "./source-page.ts";
 
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 const MAX_CASES = 20;
@@ -94,6 +95,7 @@ const storedContextSchema = z
       })
       .passthrough(),
     errors: z.array(z.string().regex(SAFE_CODE)).max(50),
+    source_pages: z.array(capturedPageSchema).max(10).optional(),
   })
   .strict();
 
@@ -276,12 +278,20 @@ function loadStoredContext(
   const options = parseJson(row.search_parameters);
   const metadata = parseJson(row.metadata);
   if (!isRecord(metadata)) throw new Error("invalid_capture_replay_context");
+  if (
+    metadata.evidence_kind === "source_page_text_v1" &&
+    !Array.isArray(metadata.source_pages)
+  )
+    throw new Error("invalid_capture_replay_context");
   return storedContextSchema.parse({
     report: metadata.research_report,
     urls: metadata.consulted_urls,
-    observedAt: row.started_at,
+    observedAt: metadata.evidence_observed_at ?? row.started_at,
     options,
     errors: rowErrors(row.error_message, metadata),
+    ...(metadata.evidence_kind === "source_page_text_v1"
+      ? { source_pages: metadata.source_pages }
+      : {}),
   });
 }
 
@@ -338,8 +348,30 @@ async function replayCase(
 ): Promise<UnknownRecord> {
   const captures = await readCaptures(item, cwd);
   let context: StoredContext;
+  let options: SearchOptions;
+  let sources: ReturnType<typeof selectSources>;
   try {
     context = loadStoredContext(database, item.run_id);
+    options = validateSearchOptions({
+      from: context.options.from,
+      to: context.options.to,
+      limit: context.options.limit,
+      ...(context.options.profile
+        ? {
+            profile: context.options.profile,
+            searches: context.options.searches,
+            career_target: context.options.career_target,
+          }
+        : {}),
+    });
+    sources = selectSources(
+      context.source_pages
+        ? context.source_pages.map((page) => page.source_url)
+        : context.urls,
+      options.limit,
+    );
+    if (context.source_pages)
+      validateCapturedPages(context.source_pages, sources);
   } catch {
     return {
       label: item.label,
@@ -357,12 +389,6 @@ async function replayCase(
       provider_diagnostics: [],
     };
   }
-  const options: SearchOptions = validateSearchOptions({
-    from: context.options.from,
-    to: context.options.to,
-    limit: context.options.limit,
-  });
-  const sources = selectSources(context.urls, options.limit);
   let requestCount = 0;
   let exhausted = false;
   const provider = new OpenRouterSearchProvider(
@@ -385,7 +411,12 @@ async function replayCase(
   let candidateCodes: Array<string | null> = [];
   try {
     const extraction = await provider.extract(
-      { report: context.report, urls: context.urls, metadata: {} },
+      {
+        report: context.report,
+        urls: context.urls,
+        metadata: {},
+        ...(context.source_pages ? { source_pages: context.source_pages } : {}),
+      },
       sources,
       options,
       new AbortController().signal,
@@ -395,7 +426,9 @@ async function replayCase(
         normalizeCandidate(
           candidate,
           sources[index],
-          context.report,
+          context.source_pages?.find(
+            (page) => page.source_url === sources[index].source_url,
+          )?.text ?? context.report,
           options,
           context.observedAt,
         );

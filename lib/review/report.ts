@@ -35,7 +35,7 @@ export function buildReviewReport(input: unknown, now = new Date()) {
   const event = review.event;
   const blockers: string[] = [];
   const warnings: string[] = [
-    "Evidence was interpreted by a model. Hosted source verification is not a page archive; check the current listing yourself before approving.",
+    "Evidence was interpreted by a model. Captured text or historical hosted verification is not a browser rendering or a guarantee of current facts; check the current listing yourself before approving.",
   ];
   if (event.publication_status !== "draft" || event.is_fixture)
     blockers.push("Only non-fixture drafts can be published.");

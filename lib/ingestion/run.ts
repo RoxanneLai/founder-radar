@@ -20,6 +20,19 @@ import { validationFailure } from "./candidate-validation.ts";
 import { privateCandidateFailure } from "./private-candidate-failure.ts";
 import { validateSearchOptions } from "./options.ts";
 import {
+  CAPTURE_ERROR_CODES,
+  SOURCE_CAPTURE_LIMITS,
+  validateCapturedPages,
+} from "./source-page.ts";
+import type {
+  CapturedSourcePage,
+  SourceCaptureDiagnostic,
+} from "./source-page.ts";
+import {
+  captureFailureDetails,
+  capturedPageDiagnostic,
+} from "./source-capture.ts";
+import {
   MAX_RESEARCH_EXCLUSIONS,
   selectSources,
   sourceIdentity,
@@ -34,6 +47,11 @@ type Dependencies = {
   signal: AbortSignal;
   now?: () => Date;
   onProgress?: (summary: RunSummary) => Promise<void>;
+  captureSource?: (
+    source: SourceIdentity,
+    retrievalUrl: string,
+    signal: AbortSignal,
+  ) => Promise<CapturedSourcePage>;
 };
 type PersistedSource = {
   source: SourceIdentity;
@@ -116,12 +134,18 @@ async function saveExtractedSource(
 ): Promise<SaveResult> {
   let event: EventDraft;
   let evidence = research.report;
+  const page = research.source_pages?.find(
+    (item) => item.source_url === source.source_url,
+  );
   try {
     if (candidates.length !== 1)
       throw new IngestionError(
         candidates.length ? "duplicate_candidate" : "candidate_missing",
       );
-    if (context.options.profile === "career")
+    if (research.source_pages) {
+      if (!page) throw new IngestionError("invalid_source_evidence");
+      evidence = page.text;
+    } else if (context.options.profile === "career")
       evidence = careerSourceEvidence(
         research.report,
         source.source_url,
@@ -170,7 +194,12 @@ async function saveExtractedSource(
       content_text: evidence,
       content_hash: createHash("sha256").update(evidence).digest("hex"),
       raw_payload: {
-        evidence_kind: "model_web_search_report_with_source_fetch",
+        evidence_kind: page
+          ? "source_page_text_v1"
+          : "model_web_search_report_with_source_fetch",
+        ...(page
+          ? { source_page: JSON.parse(JSON.stringify(page)) as Json }
+          : {}),
         research: research.metadata,
         extraction: context.metadata.extraction ?? null,
         candidate: JSON.parse(JSON.stringify(candidates[0])) as Json,
@@ -255,6 +284,10 @@ async function processCandidates(
   checkCancellation(deps.signal);
   const sources = persisted.map((item) => item.source);
   const candidates = await extractCandidates(sources, research, context, deps);
+  if (research.source_pages) {
+    context.observedAt = (deps.now ?? (() => new Date()))().toISOString();
+    context.metadata.evidence_observed_at = context.observedAt;
+  }
   const indexed = indexCandidates(candidates, sources, context.summary);
   for (const { source, eventId, sourceId } of persisted) {
     checkCancellation(deps.signal);
@@ -276,6 +309,79 @@ async function processCandidates(
     await deps.repository.checkpoint(context.summary.run_id, context.metadata);
     await reportProgress(context.summary, deps);
   }
+}
+
+/** Capture independently; persist failures without replacing previous good evidence. */
+async function captureEvidence(
+  persisted: PersistedSource[],
+  research: Research,
+  context: RunContext,
+  deps: Dependencies,
+): Promise<{ persisted: PersistedSource[]; research: Research }> {
+  if (!deps.captureSource) return { persisted, research };
+  const accepted: PersistedSource[] = [];
+  const pages: CapturedSourcePage[] = [];
+  const diagnostics: SourceCaptureDiagnostic[] = [];
+  context.metadata.evidence_kind = "source_page_text_v1";
+  for (const item of persisted) {
+    checkCancellation(deps.signal);
+    try {
+      const page = await deps.captureSource(
+        item.source,
+        research.retrieval_urls?.[item.source.source_url] ??
+          item.source.source_url,
+        deps.signal,
+      );
+      checkCancellation(deps.signal);
+      if (
+        pages.reduce(
+          (sum, entry) => sum + entry.text.length,
+          page.text.length,
+        ) > SOURCE_CAPTURE_LIMITS.totalTextCharacters
+      )
+        throw new IngestionError("source_capture_too_large");
+      validateCapturedPages(
+        [...pages, page],
+        [...accepted, item].map((entry) => entry.source),
+      );
+      pages.push(page);
+      accepted.push(item);
+      diagnostics.push({
+        source_id: item.sourceId,
+        ...capturedPageDiagnostic(page),
+      });
+    } catch (error) {
+      checkCancellation(deps.signal);
+      const code = errorCode(error);
+      const safeCode =
+        CAPTURE_ERROR_CODES.find((entry) => entry === code) ??
+        "source_capture_fetch_failed";
+      addError(context.summary, safeCode);
+      diagnostics.push({
+        source_id: item.sourceId,
+        status: "failed",
+        error_code: safeCode,
+        ...captureFailureDetails(error),
+      });
+      await deps.repository.save(
+        context.summary.run_id,
+        { ...item.source, error_code: safeCode },
+        null,
+        context.observedAt,
+      );
+    }
+    context.summary.source_capture_diagnostics = diagnostics;
+    context.metadata.source_pages = JSON.parse(JSON.stringify(pages)) as Json;
+    context.metadata.summary = JSON.parse(
+      JSON.stringify(context.summary),
+    ) as Json;
+    await deps.repository.checkpoint(context.summary.run_id, context.metadata);
+    await reportProgress(context.summary, deps);
+  }
+  return {
+    persisted: accepted,
+    research: { ...research, source_pages: pages },
+  };
 }
 
 async function collectAndPersist(
@@ -312,14 +418,25 @@ async function collectAndPersist(
     research: research.metadata,
     research_report: research.report,
     consulted_urls: sources.map((source) => source.source_url),
+    ...(research.retrieval_urls
+      ? { retrieval_urls: research.retrieval_urls }
+      : {}),
   });
   await deps.repository.checkpoint(context.summary.run_id, context.metadata);
   const persisted = await persistDiscovery(sources, context, deps);
   context.metadata.summary = { ...context.summary };
   await deps.repository.checkpoint(context.summary.run_id, context.metadata);
   await reportProgress(context.summary, deps);
-  if (persisted.length)
-    await processCandidates(persisted, research, context, deps);
+  if (persisted.length) {
+    const captured = await captureEvidence(persisted, research, context, deps);
+    if (captured.persisted.length)
+      await processCandidates(
+        captured.persisted,
+        captured.research,
+        context,
+        deps,
+      );
+  }
 }
 
 /** One bounded run: checkpoint research first, then save independent sources. */

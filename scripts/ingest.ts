@@ -14,6 +14,8 @@ import { createConfiguredIngestionRepository } from "../lib/ingestion/repository
 import { runIngestion } from "../lib/ingestion/run.ts";
 import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
 import { careerSearchPlan, readCareerTarget } from "../lib/career/profile.ts";
+import { captureSourcePage } from "../lib/ingestion/source-capture.ts";
+import { SOURCE_CAPTURE_LIMITS } from "../lib/ingestion/source-page.ts";
 import type {
   ReasoningEffort,
   RunSummary,
@@ -53,8 +55,15 @@ function printPlan(
         options,
         limits: {
           ...API_LIMITS,
+          fetchToolCalls: 0,
+          fetchContentTokens: 0,
           searchToolCalls: options.searches ?? 3,
           totalSearchResults: (options.searches ?? 3) * 5,
+        },
+        evidence: {
+          kind: "source_page_text_v1",
+          source_capture: SOURCE_CAPTURE_LIMITS,
+          extraction_tools: false,
         },
         profile: options.profile ?? "founder",
         planned_queries:
@@ -101,6 +110,7 @@ async function executeLive(
         repairEffort,
       ),
       signal: controller.signal,
+      captureSource: captureSourcePage,
       onProgress: saveProgress,
     });
     console.log(JSON.stringify(summary, null, 2));

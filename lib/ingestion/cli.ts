@@ -24,7 +24,7 @@ export const INGEST_HELP = [
   "Required live credential file: OPENROUTER.key in the working directory; one bare key.",
   "The command does not automatically load any .env files.",
   "Limits: 2 normal API requests plus at most 1 tool-free repair; founder up to 3 hosted searches, career up to 12,",
-  "        one hosted fetch per selected source, no retries, 5-minute run deadline.",
+  "        bounded private HTTPS source capture, tool-free extraction, no retries, 5-minute run deadline.",
   "Use --help to show this message. The end timestamp is exclusive.",
 ].join("\n");
 

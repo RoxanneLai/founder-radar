@@ -1,0 +1,47 @@
+# Private source-page evidence
+
+New live CLI runs, for both founder and career profiles, separate discovery from retrieval and extraction. Research still uses the configured bounded OpenRouter search. Local HTTPS capture then retrieves each selected listing. Tool-free extraction receives that listing's captured text, and shared validation checks exact supporting quotes against the same source. The compressed discovery report remains private context, not the quote corpus for captured-page runs.
+
+This addresses an evidence bottleneck, not a guarantee of better model output: previously a page could contain facts omitted from research, but local validation only retained the research report. The capture path has deterministic offline verification; real listing retrieval and fresh career discovery still need a separately approved live acceptance run. No historical run is retroactively declared successful.
+
+## Retrieval and limits
+
+- Select only supported individual listing identities appearing in both trusted citations and the discovery report. Identity and deduplication stay unchanged. The sanitized retrieval URL preserves the report's cited hostname, including `www`; private/tracking query values and fragments are removed. A source identity requiring an unapproved query cannot be captured, rather than silently merged with another identity. The recognized PMI event ID is preserved.
+- Use fresh verified TLS connections pinned to validated public DNS addresses. Reject loopback, private/reserved addresses, non-HTTPS, credentials, unsupported ports, and any mixed public/private DNS answer. Resolve and validate every redirect hop. No authentication, cookies, key, referrer, proxy agent, alternate-address retry, or browser session is used.
+- Capture at most ten sources sequentially, each within 20 seconds including at most two same-identity redirects. Changed listings, login destinations, cross-site redirects, and redirect loops fail closed.
+- Accept HTTP 200 with HTML, XHTML, plain text, or Event JSON/JSON-LD. Require valid UTF-8 (or ASCII); reject other declared encodings, compressed responses, incomplete bodies, detectable challenges/login pages, and unsupported content.
+- Bound each response to 1 MiB, normalized text to 16,000 characters, and aggregate retained text to 80,000 characters. Oversized evidence is rejected, not silently truncated. The existing five-minute run deadline still applies.
+
+HTML extraction removes executable scripts, style/template/iframe blocks, and comments. It retains static text and bounded recognized public Event JSON-LD fields, including nested addresses/offers; arbitrary framework state and unknown JSON fields are not retained. The model receives untrusted page text, never instructions from that page. Visible page text itself can still contain unwanted or inaccurate information: treat evidence and backups as private.
+
+This is deliberately not a browser renderer. Pages requiring JavaScript, login, cookies, challenge bypass, unsupported encodings, or too much content may fail. There is no fallback to hosted fetching or another agent when capture fails. A failed source remains unlinked if new; an already linked source retains its previous successful evidence and event. Successful siblings continue. If no captures succeed, extraction is skipped, avoiding a paid call with no evidence.
+
+## Private snapshots and diagnostics
+
+`search_runs.metadata.evidence_kind` is `source_page_text_v1`; `source_pages` stores successful captures as they arrive, even if extraction subsequently fails. Each snapshot contains canonical source identity, sanitized retrieval/final URL, actual capture timestamp, HTTP status/content type, response bytes, redirects, SHA-256 body/text hashes, and normalized text. The body hash identifies the received bytes; raw HTML is not retained, so it cannot reconstruct that response. Text hashes can be checked during offline replay.
+
+A successful source stores captured text in `content_text` and its snapshot in `raw_payload.source_page`. Failed refreshes do not replace successful source evidence. The existing top-level source `fetched_at` is an evidence-observation timestamp; actual capture time and HTTP status are inside the private snapshot. No database schema migration or automatic data transfer is required; both storage backends retain these JSON values through their existing transactions.
+
+Console/progress summaries and the run inspector expose only bounded `source_capture_diagnostics`: source ID, captured/failed status, fixed error code, known HTTP status/content type, byte count, and redirects. Missing details stay null. They never contain source text, new retrieval URLs, headers, addresses, credentials, raw errors, prompts, or reasoning traces. Extraction diagnostics label the evidence path `local_source_capture`; provider-reported usage and cost remain unverified.
+
+Capture errors use fixed `source_capture_*` codes for blocked URLs/addresses, timeout, transport failure, HTTP failure, redirect limit, unsupported content, oversize/incomplete response, challenge, invalid encoding, and empty text. Global cancellation retains the existing cancelled-run behavior. Successful captures are checkpointed privately before paid extraction; safe summaries cannot reconstruct page content.
+
+## Validation, publication, and compatibility
+
+Tool-free extraction still uses the complete strict schema and `provider.require_parameters: true`. Unexpected reported search/fetch usage fails before repair. There is at most one bounded tool-free schema repair, with exact source coverage and scalar-preservation checks. Malformed JSON remains rejected; quote grounding, relevance, date-window/year/timezone checks, cancelled events, and already-started rejection remain enforced. The event observation time is refreshed after extraction so an event that starts during processing cannot become a new draft.
+
+Unknown values remain null. A quote proves textual presence, not semantic correctness, current availability, or recruiter attendance. Operators must still verify the original listing and explicitly approve publication. Private captures do not appear in public cards. Existing reviewed/published protection, stale-review checks, approval history, and source identity/deduplication are unchanged.
+
+Historical report-only runs retain their original evidence kinds and hosted-fetch compatibility validation. The offline replay command uses stored source-page text for new capture runs and original report evidence for historical runs. Missing or invalid new snapshots never silently revert to report evidence. Replay reads a selected synthetic or historical SQLite database read-only, makes no provider or source requests, and does not modify publication.
+
+Plan mode prints the evidence kind, capture bounds, and tool-free setting. It does not read `OPENROUTER.key`, open a database, fetch pages, or spend money. Direct capture adds no model request; normal live runs use one research call, one extraction if captures succeed, and at most one conditional repair. Capture text can increase billed extraction input; plan limits are not a monetary guarantee.
+
+Keep diagnostic exports and synthetic verification artifacts owner-only under ignored `codex-tmp/`. Backups containing private snapshots require the same protections as the database; see [storage](STORAGE.md). No paid calls, real database changes, or real-event publication are needed for the normal offline suite.
+
+## Offline implementation checkpoint — September 29, 2026
+
+The retrieval audit of career run `a91843ab-1333-4d30-b39c-b1bbd7eb923d` found two fact-free rejected verdicts after valid JSON and accepted scalar-preserving repair. It did not prove the reason for either hosted retrieval failure. Local report evidence was incomplete, and no independent HTTP snapshot was retained. The new path makes future retrieval outcomes and quote evidence auditable without guessing the cause of that historical run.
+
+Implementation checks cover URL/DNS/TLS and redirect boundaries, native bounded response streams, encodings/challenges, JSON-LD filtering, source-scoped career grounding, bounded repair, cancellation, extraction-failure checkpoints, already-started rejection, failed-refresh preservation, SQLite private persistence/public projection/stale approval, mocked Supabase SDK persistence, and read-only snapshot replay. Tests use synthetic responses and isolated temporary databases, never live model quality or existing data. The optional real PostgreSQL integration suite is not part of this increment; no schema or SQL changes are needed.
+
+`npm run format`, `npm run lint`, `npm run typecheck`, `npm test`, and `git diff --check` passed. The normal suite passed 171 deterministic offline tests: 6 unit, 138 ingestion, 17 dashboard, and 10 review. The final production build, 3 compiled-page checks, and 8 runtime checks passed in a fresh credential-free source copy under ignored `codex-tmp/`. Rebuilding an already used build directory was blocked by `EPERM` cleanup even with approval; the fresh-copy build passed with only non-fatal workspace/npm warnings. No paid requests, existing database changes, real-event publication, commits, or pushes were made for this implementation.

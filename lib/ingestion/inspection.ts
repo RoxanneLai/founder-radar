@@ -5,6 +5,7 @@ import { z } from "zod";
 import { readDatabaseSelection } from "../storage/config.ts";
 import { parseJson } from "../storage/sqlite.ts";
 import { safeValidationFailures } from "./candidate-validation.ts";
+import { safeCaptureDiagnostics } from "./source-page.ts";
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const uuid = z.string().uuid();
@@ -38,6 +39,7 @@ const resultSchema = z
       .strict(),
     provider_diagnostics: z.array(z.unknown()).max(3),
     candidate_validation_failures: z.unknown().optional(),
+    source_capture_diagnostics: z.unknown().optional(),
     sources: z.array(sourceSchema).max(50),
   })
   .strict();
@@ -88,6 +90,7 @@ export function inspectionStatement(runId: string): string {
       ),
       'provider_diagnostics', coalesce(r.metadata #> '{summary,provider_diagnostics}', '[]'::jsonb),
       'candidate_validation_failures', coalesce(r.metadata #> '{summary,candidate_validation_failures}', '[]'::jsonb),
+      'source_capture_diagnostics', coalesce(r.metadata #> '{summary,source_capture_diagnostics}', '[]'::jsonb),
       'sources', coalesce((
         select jsonb_agg(jsonb_build_object(
           'id', s.id,
@@ -228,6 +231,9 @@ export function executeSqliteInspection(runId: string, path: string): unknown {
         error_message: row.error_message,
       },
       provider_diagnostics: diagnostics,
+      source_capture_diagnostics: safeCaptureDiagnostics(
+        summary.source_capture_diagnostics,
+      ),
       candidate_validation_failures: safeValidationFailures(
         summary.candidate_validation_failures,
       ),
@@ -331,6 +337,9 @@ export async function runInspectionCli(
     provider_diagnostics: parsed.data.provider_diagnostics,
     candidate_validation_failures: safeValidationFailures(
       parsed.data.candidate_validation_failures,
+    ),
+    source_capture_diagnostics: safeCaptureDiagnostics(
+      parsed.data.source_capture_diagnostics,
     ),
     sources: parsed.data.sources,
     source_count: parsed.data.sources.length,

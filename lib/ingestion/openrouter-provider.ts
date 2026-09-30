@@ -52,6 +52,9 @@ import {
 import type { RouterResponse } from "./openrouter-response.ts";
 import { routerDiagnostic } from "./openrouter-diagnostics.ts";
 import { parseStructuredContent } from "./structured-output.ts";
+import { sourceRetrievalUrl, validateCapturedPages } from "./source-page.ts";
+import { CAPTURED_EXTRACTION_INSTRUCTIONS } from "./prompts.ts";
+import { CAPTURED_CAREER_EXTRACTION_INSTRUCTIONS } from "../career/prompts.ts";
 
 export const API_LIMITS = {
   calls: 3,
@@ -1224,9 +1227,26 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       throw new IngestionError("invalid_research_report");
     const diagnostic = this.verifyResearchSearch(response, this.searchBudget);
     const urls = reportedSourceUrls(response);
+    const retrievalUrls: Record<string, string> = {};
+    for (const match of report.matchAll(/https:\/\/[^\s)\]}>'"]+/g)) {
+      const raw = match[0].replace(/[.,;:!?]+$/, "");
+      const source = sourceIdentity(raw);
+      if (
+        source &&
+        urls.includes(source.source_url) &&
+        !retrievalUrls[source.source_url]
+      ) {
+        try {
+          retrievalUrls[source.source_url] = sourceRetrievalUrl(raw, source);
+        } catch {
+          /* Keep identity, never guess a retrieval alias. */
+        }
+      }
+    }
     return {
       report,
       urls,
+      retrieval_urls: retrievalUrls,
       metadata: {
         ...(routerMetadata(
           response,
@@ -1252,6 +1272,12 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     if (options.profile === "career" && !options.career_target)
       throw new IngestionError("invalid_career_config");
     this.searchBudget = options.searches ?? 3;
+    const captured = research.source_pages !== undefined;
+    if (captured)
+      research = {
+        ...research,
+        source_pages: validateCapturedPages(research.source_pages, sources),
+      };
     const response = await this.request(
       "extraction",
       {
@@ -1259,9 +1285,13 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           {
             role: "system",
             content:
-              (options.profile === "career"
-                ? CAREER_EXTRACTION_INSTRUCTIONS
-                : EXTRACTION_INSTRUCTIONS) +
+              (captured
+                ? options.profile === "career"
+                  ? CAPTURED_CAREER_EXTRACTION_INSTRUCTIONS
+                  : CAPTURED_EXTRACTION_INSTRUCTIONS
+                : options.profile === "career"
+                  ? CAREER_EXTRACTION_INSTRUCTIONS
+                  : EXTRACTION_INSTRUCTIONS) +
               " Required schema: " +
               JSON.stringify(
                 candidateResponseFormat(sources.length, options.profile)
@@ -1273,19 +1303,23 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
             content: extractionInput(research, sources, options),
           },
         ],
-        tools: [
-          {
-            type: "openrouter:web_fetch",
-            parameters: {
-              engine: "openrouter",
-              max_uses: sources.length,
-              max_content_tokens: API_LIMITS.fetchContentTokens,
-              allowed_domains: ALLOWED_DOMAINS,
-            },
-          },
-        ],
-        tool_choice: "required",
-        max_tool_calls: sources.length,
+        ...(captured
+          ? {}
+          : {
+              tools: [
+                {
+                  type: "openrouter:web_fetch",
+                  parameters: {
+                    engine: "openrouter",
+                    max_uses: sources.length,
+                    max_content_tokens: API_LIMITS.fetchContentTokens,
+                    allowed_domains: ALLOWED_DOMAINS,
+                  },
+                },
+              ],
+              tool_choice: "required",
+              max_tool_calls: sources.length,
+            }),
         max_tokens: API_LIMITS.extractionOutputTokens,
         response_format: candidateResponseFormat(
           sources.length,
@@ -1295,6 +1329,10 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       signal,
     );
     const responseDiagnostic = this.diagnostics.at(-1)!;
+    if (captured) {
+      this.verifyCapturedExtractionTools(response);
+      responseDiagnostic.fetch_verification = "local_source_capture";
+    }
     const parsed = parseStructuredContent(
       response.choices[0].message.content,
       responseDiagnostic,
@@ -1306,8 +1344,9 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       : null;
     const reportedTools = response.usage?.server_tool_use;
     if (
-      (reportedTools?.web_search_requests ?? 0) !== 0 ||
-      reportedTools?.web_fetch_requests != null
+      !captured &&
+      ((reportedTools?.web_search_requests ?? 0) !== 0 ||
+        reportedTools?.web_fetch_requests != null)
     ) {
       this.verifyExtractionFetch(
         response,
@@ -1355,12 +1394,14 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     // Preserve per-candidate validation so one malformed sibling cannot erase good evidence.
     if (!candidates || candidates.length !== sources.length)
       throw new IngestionError("invalid_extraction_shape");
-    const verifiedDiagnostic = this.verifyExtractionFetch(
-      response,
-      sources.length,
-      sourceCoverage?.exact ?? false,
-      responseDiagnostic,
-    );
+    const verifiedDiagnostic = captured
+      ? responseDiagnostic
+      : this.verifyExtractionFetch(
+          response,
+          sources.length,
+          sourceCoverage?.exact ?? false,
+          responseDiagnostic,
+        );
     const metadata = routerMetadata(
       response,
       this.model,
@@ -1378,5 +1419,14 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           }
         : metadata,
     };
+  }
+
+  private verifyCapturedExtractionTools(response: RouterResponse): void {
+    const tools = response.usage?.server_tool_use;
+    if (
+      (tools?.web_search_requests ?? 0) !== 0 ||
+      (tools?.web_fetch_requests ?? 0) !== 0
+    )
+      throw new IngestionError("unexpected_extraction_tools");
   }
 }
