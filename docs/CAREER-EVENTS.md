@@ -64,6 +64,14 @@ The offline follow-up clarifies unknown registration as null/null, requires expl
 
 Follow-up verification passed formatting, lint, type checking, `git diff --check`, and 141 deterministic offline tests (6 unit, 108 ingestion, 17 dashboard, 10 review). The production build and 11 compiled-page/runtime checks passed in a credential-free isolated source copy under ignored `codex-tmp/`; its nested-workspace warning was non-fatal. SQLite verification used temporary synthetic databases; Supabase metadata persistence was checked through the mocked SDK, without rerunning the optional PostgreSQL suite. No paid calls, existing database changes, or real-event publication were made during the follow-up.
 
+### Second career pilot — September 29, 2026
+
+Run `2585c355-1830-402d-8e7f-3a74c210afcc` completed partially: one existing FINOS source was updated, no event drafts were written, and the source remained unlinked. Its two requests reported $0.02963517 combined cost (unverified billing). Extraction stopped with `invalid_extraction_json` before candidate validation or repair; no third model request was made. The 9,858-character completion, HTTP 200, and normal finish reason do not reveal whether the response contained fences, prose, or malformed JSON. Its text was not retained, so the specific cause cannot be reconstructed.
+
+The offline follow-up adds bounded, content-free formatting diagnostics at the strict JSON parsing boundary for extraction and repair, including persisted safe run summaries and offline replay reports. It does not accept new formats, weaken validation, or make additional model calls. See [safe structured-output diagnostics](INGESTION.md#safe-structured-output-diagnostics). No paid retry or real database change is part of this follow-up; the live career acceptance gate remains open.
+
+Diagnostic follow-up verification passed `npm run format`, `npm run lint`, `npm run typecheck`, `npm test`, and `git diff --check`: 150 deterministic offline tests (6 unit, 117 ingestion, 17 dashboard, 10 review). The production build and 11 compiled-page/runtime checks passed in a fresh credential-free source copy under ignored `codex-tmp/`, with only the non-fatal nested-workspace warning. Regression coverage includes malformed extraction and repair JSON, fenced/mixed text, bounded structural hints, private-content exclusion, recovery checkpoint retention, and read-only offline replay against temporary synthetic SQLite data. No paid requests, existing database changes, publication, commits, or pushes were performed for this diagnostic follow-up.
+
 ## Implementation verification — September 29, 2026
 
 - `npm run format`, `npm run lint`, `npm run typecheck`, and `git diff --check` passed.

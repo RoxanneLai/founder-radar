@@ -160,6 +160,52 @@ test("current bounded repair can normalize an unfamiliar captured candidate", as
   );
 });
 
+test("offline replay reports safe JSON formatting diagnostics without accepting fenced content", async () => {
+  const directory = await temporaryDirectory();
+  const databasePath = join(directory, "history.sqlite");
+  const capturePath = join(directory, "fenced.json");
+  const manifestPath = join(directory, "manifest.json");
+  const outputPath = join(directory, "report.json");
+  seedRun(databasePath);
+  await writeFile(
+    capturePath,
+    JSON.stringify({
+      content:
+        "```json\n" +
+        JSON.stringify({ private: "PRIVATE-SECRET-CONTENT" }) +
+        "\n```",
+    }),
+  );
+  await writeManifest(manifestPath, [capturePath]);
+  const result = await runCaptureReplayCli(
+    ["run", "--manifest", manifestPath, "--output", outputPath],
+    { DATABASE_BACKEND: "sqlite", SQLITE_DATABASE_PATH: databasePath },
+  );
+  const reportText = await readFile(outputPath, "utf8");
+  const replay = JSON.parse(reportText);
+  assert.equal(replay.cases[0].adapter_error_code, "invalid_extraction_json");
+  assert.equal(replay.cases[0].captures_consumed, 1);
+  assert.equal(replay.cases[0].usable_event_count, 0);
+  const diagnostic = replay.cases[0].provider_diagnostics[0].structured_output;
+  assert.equal(diagnostic.parse_status, "invalid");
+  assert.equal(diagnostic.format, "single_code_fence");
+  assert.equal(diagnostic.fence_json_valid, true);
+  assert.equal(result.safety.network_requests, 0);
+  assert.ok(!reportText.includes("PRIVATE-SECRET-CONTENT"));
+  assert.ok(!reportText.includes(url));
+  assert.equal((await stat(outputPath)).mode & 0o777, 0o600);
+  const database = openSqliteDatabase(databasePath);
+  assert.equal(
+    database.prepare("select count(*) count from events").get().count,
+    0,
+  );
+  assert.equal(
+    database.prepare("select count(*) count from search_runs").get().count,
+    1,
+  );
+  database.close();
+});
+
 test("missing repair capture fails safely as sequence exhaustion", async () => {
   const directory = await temporaryDirectory();
   const databasePath = join(directory, "history.sqlite");

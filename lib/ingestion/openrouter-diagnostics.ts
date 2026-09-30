@@ -164,6 +164,7 @@ export function routerDiagnostic(
       : null,
     content_characters:
       typeof message.content === "string" ? message.content.length : null,
+    structured_output: null,
     usage: {
       input_tokens: count(usage.prompt_tokens ?? usage.input_tokens),
       output_tokens: count(usage.completion_tokens ?? usage.output_tokens),

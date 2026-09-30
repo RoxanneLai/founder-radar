@@ -35,6 +35,16 @@ Unknown registration is the extraction pair `{"value":null,"quote":null}`. The a
 
 Official references: [OpenRouter server-side web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [OpenRouter server-side web fetch](https://openrouter.ai/docs/guides/features/server-tools/web-fetch), [OpenRouter reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [Supabase RPC](https://supabase.com/docs/reference/javascript/rpc). OpenRouter currently labels server tools beta; real-account behavior remains part of the live acceptance test.
 
+### Safe structured-output diagnostics
+
+Extraction and repair diagnostics include `structured_output` once strict JSON parsing is attempted. This records only fixed categories and booleans: valid object/array/scalar JSON, missing/empty content, a standalone code fence, mixed text, malformed object/array-like text, or other text. It also reports a leading byte-order mark, whether a standalone fence contains valid JSON, a structural incompleteness hint, and whether inspection reached its size limit. Research is not classified as JSON; null means parsing was not attempted or the historical diagnostic predates this field.
+
+These fields appear in safe provider diagnostics, private run summaries/recovery checkpoints, run inspection, and offline capture-replay reports. They contain no response text, source content, arbitrary fence label, prompt, credential, reasoning trace, parser exception, or error position. Classification examines at most 65,536 characters; structural inspection stops at 128 nested containers. An inspection limit leaves completeness unknown rather than claiming provider truncation. Unclosed brackets or strings are a hint, not proof of why generation failed; an HTTP 200 with `finish_reason: stop` does not establish valid JSON.
+
+The acceptance boundary is unchanged: only strict parsing of the complete response can reach schema validation or bounded repair. Valid JSON inside a code fence remains rejected as `invalid_extraction_json` or `invalid_repair_json`; the diagnostic probe never strips wrappers, extracts a guessed substring, corrects syntax, or triggers a paid call. A successfully parsed JSON value can still fail the separate candidate/schema gates.
+
+These diagnostics cannot reconstruct earlier malformed completions whose text was not retained. In particular, career pilot `2585c355-1830-402d-8e7f-3a74c210afcc` establishes a parsing failure, not a specific fence/prose/truncation cause. Offline synthetic tests exercise the new classifications without contacting a model or changing an existing database. Any future live attempt still requires separate paid-call approval.
+
 ## Start safely: no-network plan
 
 Install the checked-in dependencies first:

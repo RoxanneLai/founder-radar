@@ -170,6 +170,26 @@ export type Extraction = {
   metadata: Json;
 };
 
+export type StructuredOutputDiagnostic = {
+  parse_status: "valid" | "invalid";
+  format:
+    | "json_object"
+    | "json_array"
+    | "json_scalar"
+    | "missing"
+    | "empty"
+    | "single_code_fence"
+    | "mixed_text"
+    | "object_like"
+    | "array_like"
+    | "text";
+  fence_language: "json" | "unlabelled" | "other" | null;
+  fence_json_valid: boolean | null;
+  structure_incomplete: boolean | null;
+  leading_bom: boolean;
+  inspection_truncated: boolean;
+};
+
 export type ProviderDiagnostic = {
   phase: "research" | "extraction" | "repair";
   requested_model: string | null;
@@ -226,6 +246,7 @@ export type ProviderDiagnostic = {
   citation_count: number | null;
   tool_call_count: number | null;
   content_characters: number | null;
+  structured_output?: StructuredOutputDiagnostic | null;
   usage: {
     input_tokens: number | null;
     output_tokens: number | null;

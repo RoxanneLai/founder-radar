@@ -1881,9 +1881,95 @@ test("failed extraction and finalization preserve both requests in the recovery 
       "gen-extraction",
     );
     assert.equal(requests.length, 2);
+    assert.equal(snapshot.provider_diagnostics[0].structured_output, null);
+    assert.equal(
+      snapshot.provider_diagnostics[1].structured_output.format,
+      "text",
+    );
+    assert.equal(
+      snapshot.provider_diagnostics[1].structured_output.parse_status,
+      "invalid",
+    );
     assert.ok(!JSON.stringify(snapshot).includes(key));
     assert.equal(repository.events.size, 0);
   }
+});
+
+test("JSON fence diagnostics do not enable repair, writes, retries, or raw-content retention", async () => {
+  const sourceText = "PRIVATE_FENCE_CONTENT";
+  const wrapped =
+    "```json\n" +
+    JSON.stringify({ candidates: [candidate()], sourceText, credential: key }) +
+    "\n```";
+  const { provider, requests } = providerWithResponses([
+    response(report, 1),
+    extractionResponse(wrapped),
+  ]);
+  const repository = memoryRepository();
+  const progress = [];
+  const summary = await runIngestion(options, {
+    provider,
+    repository,
+    signal,
+    now: testNow,
+    onProgress: async (value) => progress.push(value),
+  });
+  assert.equal(summary.status, "partial");
+  assert.deepEqual(summary.errors, ["invalid_extraction_json"]);
+  assert.equal(summary.events_written, 0);
+  assert.equal(requests.length, 2);
+  const structured = summary.provider_diagnostics[1].structured_output;
+  assert.equal(structured.parse_status, "invalid");
+  assert.equal(structured.format, "single_code_fence");
+  assert.equal(structured.fence_json_valid, true);
+  assert.deepEqual(
+    repository.runs[0].metadata.summary.provider_diagnostics[1]
+      .structured_output,
+    structured,
+  );
+  assert.equal(
+    repository.sources.get(url).last_attempt_error,
+    "invalid_extraction_json",
+  );
+  assert.equal(repository.events.size, 0);
+  assert.doesNotMatch(
+    JSON.stringify([summary, progress, repository.runs]),
+    /PRIVATE_FENCE_CONTENT|offline-test-not-a-key|credential/,
+  );
+  assert.equal(provider.getDiagnostics().length, 2);
+});
+
+test("malformed repair responses are classified without changing repair failure behavior", async () => {
+  const alternate = { ...candidate(), unexpected_wrapper_field: "remove me" };
+  const extraction = extractionResponse(
+    JSON.stringify({ candidates: [alternate] }),
+  );
+  delete extraction.usage.server_tool_use.web_fetch_requests;
+  const repair = response(
+    "```json\n" +
+      JSON.stringify({ candidates: [candidate()], secret: key }) +
+      "\n```",
+  );
+  const { provider, requests } = providerWithResponses([extraction, repair]);
+  await assert.rejects(
+    provider.extract(
+      { report, urls: [url], metadata: {} },
+      selectSources([url], 3),
+      options,
+      signal,
+    ),
+    { code: "invalid_repair_json" },
+  );
+  assert.equal(requests.length, 2);
+  const diagnostics = provider.getDiagnostics();
+  assert.equal(diagnostics[0].structured_output.format, "json_object");
+  assert.equal(diagnostics[1].repair_validation, "invalid_json");
+  assert.equal(diagnostics[1].structured_output.format, "single_code_fence");
+  assert.equal(diagnostics[1].structured_output.fence_json_valid, true);
+  assert.doesNotMatch(
+    JSON.stringify(diagnostics),
+    /offline-test-not-a-key|secret|Founder Test/,
+  );
 });
 
 test("diagnostics allowlist excludes reflected credentials, free text, URLs and invalid numbers", async () => {

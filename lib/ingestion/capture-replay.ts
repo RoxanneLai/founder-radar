@@ -318,6 +318,7 @@ function safeDiagnostic(diagnostic: ProviderDiagnostic): UnknownRecord {
     repair_scalar_mismatch_count: diagnostic.repair_scalar_mismatch_count,
     repair_validation: diagnostic.repair_validation,
     fetch_verification: diagnostic.fetch_verification ?? null,
+    structured_output: diagnostic.structured_output ?? null,
   };
 }
 

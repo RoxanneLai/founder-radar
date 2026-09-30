@@ -51,6 +51,7 @@ import {
 } from "./openrouter-response.ts";
 import type { RouterResponse } from "./openrouter-response.ts";
 import { routerDiagnostic } from "./openrouter-diagnostics.ts";
+import { parseStructuredContent } from "./structured-output.ts";
 
 export const API_LIMITS = {
   calls: 3,
@@ -1111,14 +1112,18 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       this.repairEffort,
     );
     this.verifyRepairUsedNoTools(response);
+    const diagnostic = this.diagnostics.at(-1)!;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(response.choices[0].message.content ?? "");
+      parsed = parseStructuredContent(
+        response.choices[0].message.content,
+        diagnostic,
+        "invalid_repair_json",
+      );
     } catch {
-      this.diagnostics.at(-1)!.repair_validation = "invalid_json";
+      diagnostic.repair_validation = "invalid_json";
       throw new IngestionError("invalid_repair_json");
     }
-    const diagnostic = this.diagnostics.at(-1)!;
     // Repair output is never passed through legacy adapters: every usable
     // sibling must independently satisfy the current canonical contract.
     const candidates = extractionCandidates(parsed, diagnostic, true, false);
@@ -1289,13 +1294,12 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
       },
       signal,
     );
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(response.choices[0].message.content ?? "");
-    } catch {
-      throw new IngestionError("invalid_extraction_json");
-    }
     const responseDiagnostic = this.diagnostics.at(-1)!;
+    const parsed = parseStructuredContent(
+      response.choices[0].message.content,
+      responseDiagnostic,
+      "invalid_extraction_json",
+    );
     let candidates = extractionCandidates(parsed, responseDiagnostic);
     let sourceCoverage = candidates
       ? inspectSourceCoverage(candidates, sources, responseDiagnostic)
