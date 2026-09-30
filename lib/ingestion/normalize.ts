@@ -27,6 +27,12 @@ function text(
   return value && value.length <= maxLength ? value : null;
 }
 
+/** Normalize only the observed spelling alias, after exact quote grounding. */
+function eventFormat(fact: Fact<string>, evidence: string): string | null {
+  const value = text(fact, evidence);
+  return value === "in_person" ? "in-person" : value;
+}
+
 function hasCorrectOffset(value: string, timeZone: string): boolean {
   // UTC instants are unambiguous. For local offsets check DST against the zone.
   if (value.endsWith("Z")) return true;
@@ -97,7 +103,7 @@ export function normalizeCandidate(
   const city = text(c.city, report);
   const region = text(c.region, report);
   const country = text(c.country_code, report);
-  const format = text(c.event_format, report);
+  const format = eventFormat(c.event_format, report);
   if (!title || !startText || !city || !region || !country || !format) {
     throw new IngestionError("incomplete_event");
   }
@@ -159,9 +165,15 @@ export function normalizeCandidate(
     /^[A-Z]{3}$/.test(currency) &&
     new RegExp("\\b" + currency + "\\b", "i").test(c.currency_code.quote ?? "");
   const registration = text(c.registration_status, report);
+  const normalizationNotes = [
+    ...(!statedTimeZone ? ["timezone_inferred_nyc"] : []),
+    ...(text(c.event_format, report) === "in_person"
+      ? ["event_format_normalized_in_person"]
+      : []),
+  ];
   const event: EventDraft = {
-    ...(!statedTimeZone
-      ? { normalization_notes: ["timezone_inferred_nyc"] }
+    ...(normalizationNotes.length
+      ? { normalization_notes: normalizationNotes }
       : {}),
     title,
     organizer_name: text(c.organizer_name, report),

@@ -12,14 +12,20 @@ export const REASONING_EFFORTS = [
 ] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
-// A quote anchors every field to the research report. It is not independent
-// verification of the original page, so ingestion can only create drafts.
+// Quotes anchor facts to source-page text or historical research evidence.
+// Textual grounding is not factual verification, so ingestion only creates drafts.
 export const textFact = z
   .object({
     value: z.string().nullable(),
     quote: z.string().nullable(),
   })
   .strict();
+export const EVENT_FORMATS = ["in-person", "hybrid", "virtual"] as const;
+// Gateway outputs are canonical. Runtime inputs retain compatibility with old
+// string-valued records, with eligibility and narrow alias handling in normalization.
+export const eventFormatOutputFact = textFact.extend({
+  value: z.enum(EVENT_FORMATS).nullable(),
+});
 const priceFact = z
   .object({
     value: z.number().int().min(0).max(2147483647).nullable(),

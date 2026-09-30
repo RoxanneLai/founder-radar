@@ -47,7 +47,7 @@ function extractionInstructions(captured: boolean): string {
         ? "captured-text quote."
         : "report quote confirmed by the listing.") +
       " A registration button alone does not prove availability; do not invent a quote. The application maps null/null to its display status unknown.",
-    "event_format is in-person, hybrid, or virtual.",
+    "event_format values are exactly in-person, hybrid, virtual, or null; use the hyphenated spelling in-person, never in_person. Unknown format stays null/null.",
     "price_amount_cents is an integer in minor units; currency_code is an explicit ISO code. Do not interpret '$' alone as USD.",
     "Do not produce relevance scores or recommendations.",
   ].join(" ");

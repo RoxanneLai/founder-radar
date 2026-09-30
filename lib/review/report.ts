@@ -57,6 +57,16 @@ export function buildReviewReport(input: unknown, now = new Date()) {
         "Timezone was not stated. America/New_York was inferred from confirmed NYC attendance; check the local clock time before approval.",
       );
     if (
+      payload &&
+      typeof payload === "object" &&
+      "normalization_notes" in payload &&
+      Array.isArray(payload.normalization_notes) &&
+      payload.normalization_notes.includes("event_format_normalized_in_person")
+    )
+      warnings.push(
+        "The model's in_person label was normalized to in-person. The original quote is unchanged; check physical attendance before approval.",
+      );
+    if (
       !source.content_text?.trim() ||
       !source.fetched_at ||
       source.last_attempt_error

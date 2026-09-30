@@ -34,6 +34,37 @@ function snapshot(event = {}, source = {}) {
   };
 }
 
+test("format spelling provenance stays private and is disclosed in operator review without changing public cards", () => {
+  const report = buildReviewReport(
+    snapshot(
+      {},
+      {
+        raw_payload: {
+          normalization_notes: ["event_format_normalized_in_person"],
+          candidate: {
+            event_format: {
+              value: "in_person",
+              quote: "PRIVATE PHYSICAL ATTENDANCE QUOTE",
+            },
+          },
+        },
+      },
+    ),
+    now,
+  );
+  assert.deepEqual(report.blockers, []);
+  assert.match(report.warnings.join(" "), /in_person.*in-person/);
+  assert.match(report.warnings.join(" "), /check physical attendance/);
+  assert.deepEqual(
+    report.publicPreview,
+    buildReviewReport(snapshot(), now).publicPreview,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(report.publicPreview),
+    /in_person|normalization_notes|PRIVATE PHYSICAL/,
+  );
+});
+
 test("public URLs use a strict listing allowlist and never retain private parameters", () => {
   for (const [input, expected] of [
     [

@@ -5,6 +5,7 @@ import { candidateSchema } from "./contracts.ts";
 import {
   careerCandidateSchema,
   schemaForProfile,
+  outputSchemaForProfile,
 } from "../career/contracts.ts";
 import { careerSearchPlan } from "../career/profile.ts";
 import {
@@ -579,7 +580,7 @@ function candidateResponseFormat(count: number, profile?: string) {
       schema: z.toJSONSchema(
         z
           .object({
-            candidates: z.array(schemaForProfile(profile)).length(count),
+            candidates: z.array(outputSchemaForProfile(profile)).length(count),
           })
           .strict(),
       ),

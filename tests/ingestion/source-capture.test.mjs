@@ -31,6 +31,10 @@ import {
 import { executeSqliteReview } from "../../lib/review/repository.ts";
 import { buildReviewReport } from "../../lib/review/report.ts";
 import { loadDashboard } from "../../lib/dashboard/repository.ts";
+import {
+  outputSchemaForProfile,
+  schemaForProfile,
+} from "../../lib/career/contracts.ts";
 import { createClient } from "@supabase/supabase-js";
 import { SupabaseIngestionRepository } from "../../lib/ingestion/repository.ts";
 import {
@@ -116,6 +120,158 @@ function careerCandidate(text) {
   assert.ok(text.includes(c.career.kind.quote));
   return c;
 }
+
+test("gateway format enums are canonical for both profiles while runtime inputs retain historical compatibility", () => {
+  for (const profile of ["founder", "career"]) {
+    const c =
+      profile === "career"
+        ? careerCandidate(report + " Product discovery discussion.")
+        : candidate();
+    for (const value of ["in-person", "hybrid", "virtual"]) {
+      c.event_format.value = value;
+      assert.equal(outputSchemaForProfile(profile).safeParse(c).success, true);
+    }
+    c.event_format = fact(null);
+    assert.equal(outputSchemaForProfile(profile).safeParse(c).success, true);
+    for (const value of ["in_person", "physical", "online", "", "unknown"]) {
+      c.event_format = fact(value);
+      assert.equal(outputSchemaForProfile(profile).safeParse(c).success, false);
+      if (value === "in_person")
+        assert.equal(schemaForProfile(profile).safeParse(c).success, true);
+    }
+  }
+});
+
+test("captured founder and career runs accept only the grounded format alias locally without repair or changing private scalars", async () => {
+  const text = report + " Product discovery discussion.";
+  for (const profile of ["founder", "career"]) {
+    const c = profile === "career" ? careerCandidate(text) : candidate();
+    c.event_format.value = "in_person";
+    const repo = memoryRepository();
+    let calls = 0;
+    const provider = new OpenRouterSearchProvider(
+      "fake-key",
+      "vendor/offline",
+      "medium",
+      async () => {
+        calls += 1;
+        return router(JSON.stringify({ candidates: [c] }));
+      },
+    );
+    const summary = await runIngestion(
+      profile === "career" ? careerOptions : options,
+      {
+        provider: {
+          async research() {
+            return { report: "Sparse discovery", urls: [url], metadata: {} };
+          },
+          extract: provider.extract.bind(provider),
+          getDiagnostics: provider.getDiagnostics.bind(provider),
+        },
+        repository: repo,
+        signal,
+        now,
+        captureSource: async () => page(text),
+      },
+    );
+    assert.equal(calls, 1);
+    assert.equal(summary.status, "succeeded");
+    assert.equal(summary.events_written, 1);
+    assert.equal([...repo.events.values()][0].event_format, "in-person");
+    assert.equal(
+      repo.sources.get(url).raw_payload.candidate.event_format.value,
+      "in_person",
+    );
+    assert.equal(
+      repo.sources.get(url).raw_payload.candidate.event_format.quote,
+      c.event_format.quote,
+    );
+    assert.deepEqual(repo.sources.get(url).raw_payload.normalization_notes, [
+      "event_format_normalized_in_person",
+    ]);
+  }
+});
+
+test("extraction and repair requests constrain format values for both profiles without relaxing scalar preservation", async () => {
+  const text = report + " Product discovery discussion.";
+  for (const profile of ["founder", "career"]) {
+    const c = profile === "career" ? careerCandidate(text) : candidate();
+    const bodies = [];
+    const provider = new OpenRouterSearchProvider(
+      "fake-key",
+      "vendor/offline",
+      "medium",
+      async (_url, init) => {
+        bodies.push(JSON.parse(init.body));
+        return router(
+          JSON.stringify(
+            bodies.length === 1
+              ? [{ ...c, unfamiliar: null }]
+              : { candidates: [c] },
+          ),
+        );
+      },
+    );
+    await provider.extract(
+      { report, urls: [url], metadata: {}, source_pages: [page(text)] },
+      [source],
+      profile === "career" ? careerOptions : options,
+      signal,
+    );
+    assert.equal(bodies.length, 2);
+    for (const body of bodies) {
+      const schema =
+        body.response_format.json_schema.schema.properties.candidates.items
+          .properties.event_format.properties.value;
+      assert.deepEqual(schema.anyOf, [
+        { type: "string", enum: ["in-person", "hybrid", "virtual"] },
+        { type: "null" },
+      ]);
+      assert.ok(body.messages[0].content.includes(JSON.stringify(schema)));
+    }
+  }
+  const c = candidate();
+  c.event_format.value = "in_person";
+  const changed = structuredClone(c);
+  changed.event_format.value = "in-person";
+  let calls = 0;
+  const provider = new OpenRouterSearchProvider(
+    "fake-key",
+    "vendor/offline",
+    "medium",
+    async () => {
+      calls += 1;
+      return router(
+        JSON.stringify(
+          calls === 1
+            ? [{ ...c, unfamiliar: null }]
+            : { candidates: [changed] },
+        ),
+      );
+    },
+  );
+  await assert.rejects(
+    provider.extract(
+      { report, urls: [url], metadata: {}, source_pages: [page()] },
+      [source],
+      options,
+      signal,
+    ),
+    { code: "invalid_repair_output" },
+  );
+  assert.equal(calls, 2);
+  assert.equal(
+    provider.getDiagnostics()[1].repair_validation,
+    "scalar_preservation_failed",
+  );
+  assert.ok(
+    provider
+      .getDiagnostics()[1]
+      .repair_scalar_mismatch_paths.includes(
+        "candidates[0].event_format.value",
+      ),
+  );
+});
 
 test("capture retrieval preserves cited hosts and strips secrets without changing source identity", () => {
   assert.equal(

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   candidateBaseSchema,
   candidateSchema,
+  eventFormatOutputFact,
 } from "../ingestion/contracts.ts";
 
 function choice<T extends string>(values: [T, ...T[]]) {
@@ -132,6 +133,12 @@ export const careerCandidateSchema = candidateBaseSchema
 
 export function schemaForProfile(profile?: string): z.ZodType {
   return profile === "career" ? careerCandidateSchema : candidateSchema;
+}
+
+/** Restrict gateway format labels without changing historical runtime contracts. */
+export function outputSchemaForProfile(profile?: string): z.ZodType {
+  const schema = profile === "career" ? careerCandidateSchema : candidateSchema;
+  return schema.safeExtend({ event_format: eventFormatOutputFact });
 }
 
 export const careerAssessmentSchema = z

@@ -24,6 +24,76 @@ const normalize = (
   observedAt = "2026-09-01T12:00:00Z",
 ) => normalizeCandidate(input, sourceIdentity(url), report, window, observedAt);
 
+test("the observed in_person alias is normalized only after quote grounding without mutating its evidence", () => {
+  const c = candidate();
+  c.event_format.value = "in_person";
+  const before = structuredClone(c);
+  const normalized = normalize(c);
+  assert.equal(normalized.event_format, "in-person");
+  assert.deepEqual(normalized.normalization_notes, [
+    "event_format_normalized_in_person",
+  ]);
+  assert.deepEqual(c, before);
+  assert.deepEqual(
+    { ...normalized, normalization_notes: undefined },
+    { ...normalize(candidate()), normalization_notes: undefined },
+  );
+  c.time_zone = fact(null);
+  assert.deepEqual(normalize(c).normalization_notes, [
+    "timezone_inferred_nyc",
+    "event_format_normalized_in_person",
+  ]);
+});
+
+test("format spelling normalization does not guess unknown labels or turn virtual events into physical ones", () => {
+  for (const value of [
+    "virtual",
+    "online",
+    "offline",
+    "physical",
+    "In Person",
+    "In_Person",
+    "inperson",
+    "hy_brid",
+    "in_person online",
+  ]) {
+    const c = candidate();
+    c.event_format.value = value;
+    assert.throws(() => normalize(c), { code: "unsupported_event_format" });
+  }
+  for (const value of ["in-person", "hybrid"]) {
+    const c = candidate();
+    c.event_format.value = value;
+    assert.equal(normalize(c).event_format, value);
+    assert.equal(normalize(c).normalization_notes, undefined);
+  }
+});
+
+test("format aliases cannot bypass absent quotes, rejection verdicts, eligibility or freshness gates", () => {
+  const c = candidate();
+  c.event_format.value = "in_person";
+  for (const quote of [null, "", "A phrase not present in the source"]) {
+    c.event_format.quote = quote;
+    assert.throws(() => normalize(c), { code: "incomplete_event" });
+  }
+  c.event_format.quote = report;
+  c.city = fact("Boston");
+  assert.throws(() => normalize(c), { code: "outside_search_location" });
+  c.city = fact("New York");
+  assert.throws(
+    () => normalize(c, { ...options, from: "2026-09-07T00:00:00Z" }),
+    { code: "outside_search_window" },
+  );
+  assert.throws(() => normalize(c, options, "2026-09-05T22:01:00Z"), {
+    code: "event_already_started",
+  });
+  c.source_verification = {
+    status: "rejected",
+    reason: "source_page_virtual_only",
+  };
+  assert.throws(() => normalize(c), { code: "invalid_candidate" });
+});
+
 test("canonicalizes listing URLs without merging meaningful query parameters", () => {
   assert.equal(
     sourceIdentity("https://www.lu.ma/founder-test/?utm_source=x#details")
