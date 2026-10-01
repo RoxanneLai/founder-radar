@@ -163,7 +163,7 @@ export function Dashboard({
             <span>events shown</span>
           </div>
           <div>
-            <strong>{count(sample ? newCount : scoredCount)}</strong>
+            <strong>{count(sample && !career ? newCount : scoredCount)}</strong>
             <span>
               {career
                 ? "with career-fit scores"

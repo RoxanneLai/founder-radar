@@ -2,13 +2,21 @@
 
 **Find the events that move your career forward.**
 
-RightRoom is a career-event discovery platform for job seekers who want to get into rooms where relevant people, companies, and professional conversations are already happening. It helps people find worthwhile in-person events where they can learn, build genuine relationships, meet prospective employers, and create opportunities to share what they can contribute.
+RightRoom helps job seekers choose in-person events where relevant people, companies, and professional conversations are already happening. Built with **Next.js, TypeScript, SQLite, optional Supabase/Postgres, and OpenRouter**, it combines AI-assisted discovery with explainable career-fit ranking, source provenance, and human review before publication.
 
-Job boards help people find openings. RightRoom addresses an earlier, less structured question: **which rooms are worth showing up to?** The first target user is a professional making a career transition who has limited time and needs a thoughtful way to prioritize real-world networking opportunities. The longer-term product is intended to generalize through a configurable career profile rather than hard-coded assumptions about one profession or career stage.
+![RightRoom's fictional career sample, showing a ranked event card, career-fit explanations, and uncertainty cautions](docs/images/rightroom-career-sample.jpg)
 
-The project grew out of Roxanne's own search for product management opportunities: finding relevant local communities, meeting people in the field, and creating a natural opportunity to discuss her experience and share a resume. The product direction extends that need to other job seekers. Its guiding question is whether an event offers a useful setting for conversations relevant to someone's next career move.
+_Screenshot of the career sample edition. Events, people, scores, and availability are fictional—not live listings or measured career outcomes. Run locally and visit `/sample/career` to explore it without credentials or paid API calls._
 
-> **Naming note:** RightRoom is the product name. Some internal database filenames, ingestion identifiers, Docker resources, migrations, and historical documents still use `founder-radar` or FounderRadar so existing data and workflows remain compatible. Renaming those identifiers is separate from changing the product focus and will be handled deliberately if it becomes worthwhile.
+## Product overview
+
+**User problem.** Job boards surface openings, but do not answer: _which rooms are worth showing up to?_ RightRoom grew out of Roxanne's own transition into product management and the difficulty of prioritizing local networking opportunities with limited time. The initial audience is NYC career changers seeking relevant professional communities and genuine conversations—not guaranteed jobs or access to recruiters.
+
+**Product decisions.** Start with a focused NYC product-management and technical-delivery profile. Rank events using explicit evidence for role fit, relevant people, interaction, domain fit, and practical access; show reasons and uncertainty rather than an unexplained score. Capture original listing text, reject incomplete or conflicting candidates, and require human review before publishing. Keep the default experience local-first with SQLite, no Docker, and a separate credential-free sample edition.
+
+**Result today.** A working career-first dashboard, configurable discovery pipeline, private draft review, stale-safe publication, and source-linked event cards. Live collection has produced drafts, and a manually checked career lead has been recovered and explicitly published. The code is covered by 191 deterministic offline tests plus production-page/runtime checks. Reliable fresh career discovery and ranking usefulness are still being evaluated; no user-impact or job-placement results are claimed.
+
+**My contribution.** Roxanne defined the user problem, directed the shift from startup networking to career-event discovery, prioritized features and safeguards, and guided iterative implementation and validation with AI coding assistants. The code was developed through that AI-assisted collaboration.
 
 ## Current milestone: career discovery with human review
 
@@ -51,6 +59,8 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+For the credential-free showcase, open http://localhost:3000/sample/career. No hosted demo is currently provided.
 
 No database configuration is needed for the default SQLite dashboard. Its persistent ignored file is created automatically. No service-role key or OpenRouter key is needed for page loads. A new database is intentionally empty; open `/sample/career` to see the career demo. Starting the page does not run discovery or publish anything.
 
@@ -171,5 +181,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 The database read boundary and dashboard integration are implemented. Local migrations, authentication, and database/API access are verified in the [readiness checkpoint](docs/LOCAL-READINESS.md). Fresh run `edc10f58-32cd-4ab6-9f50-4317358c5139` exercised the generalized JSON repair boundary end to end: one unfamiliar extraction structure became one canonical, scalar-preserving draft with no errors. The draft remains private pending manual comparison with its current Meetup page. Interrupted runs can be listed, previewed, and explicitly closed without deleting their audit history. Real event collection does not depend on finishing AI scoring first.
 
 ## Historical development records
+
+RightRoom is the product name. Some internal database filenames, ingestion identifiers, Docker resources, migrations, and historical documents still use `founder-radar` or FounderRadar so existing data and workflows remain compatible. Renaming those identifiers is separate from changing the product focus.
 
 The original FounderRadar [V0 walkthrough](docs/archive/V0-WALKTHROUGH.md) and [complete-code snapshot](docs/archive/V0-COMPLETE-CODE.md) are archived records of the browser-based ChatGPT development phase. Their contents are intentionally preserved, including the former product name, obsolete commands, and setup details. Use this README and the actual source files for current development. The formatter skips `docs/archive/` to avoid rewriting those snapshots.

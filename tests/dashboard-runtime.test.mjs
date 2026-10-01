@@ -261,6 +261,10 @@ test("homepage and career alias rank published career assessments without leakin
   assert.match(sample.html, /fictional career shortlist/i);
   assert.match(
     sample.html,
+    /<strong>03<\/strong>\s*<span>with career-fit scores<\/span>/,
+  );
+  assert.match(
+    sample.html,
     /<a\b(?=[^>]*href="\/")(?=[^>]*class="edition-link")[^>]*>/,
   );
   assert.equal(databaseCalls, callsBefore);

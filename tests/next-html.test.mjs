@@ -35,6 +35,10 @@ test("career sample is clearly fictional and explains scores, unknowns and cauti
   assert.match(html, /Hiring/);
   assert.match(html, /ranking hypothesis/);
   assert.equal((html.match(/<article\b/g) ?? []).length, 3);
+  assert.match(
+    html,
+    /<strong>03<\/strong>\s*<span>with career-fit scores<\/span>/,
+  );
   assert.doesNotMatch(html, /raw_payload|source_verification|research_report/);
   assert.match(
     html,
