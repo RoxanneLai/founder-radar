@@ -6,8 +6,12 @@ const entrySchema = z
     host: z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/),
     prefix: z.string().regex(/^\/[a-z0-9/-]+$/),
     identity_parameter: z.literal("eventId").nullable(),
+    identity_pattern: z.literal("W[0-9]{10}").optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (entry) => !entry.identity_pattern || entry.identity_parameter === null,
+  );
 export const ORGANIZER_SOURCES = z.array(entrySchema).max(20).parse(configured);
 
 /** Only registry-approved individual paths; remove all nonidentity parameters. */
@@ -34,6 +38,11 @@ export function organizerListing(
     !/^[A-Za-z0-9_-]+$/.test(suffix)
   )
     return null;
+  if (entry.identity_pattern) {
+    if (!new RegExp("^" + entry.identity_pattern + "$").test(suffix))
+      return null;
+    externalId = suffix;
+  }
   url.search = "";
   if (externalId && entry.identity_parameter)
     url.searchParams.set(entry.identity_parameter, externalId);

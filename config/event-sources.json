@@ -1,5 +1,23 @@
 [
-  { "host": "finos.org", "prefix": "/hosted-events/", "identity_parameter": null },
-  { "host": "events.datadoghq.com", "prefix": "/events/", "identity_parameter": null },
-  { "host": "pminyc.org", "prefix": "/calendar", "identity_parameter": "eventId" }
+  {
+    "host": "finos.org",
+    "prefix": "/hosted-events/",
+    "identity_parameter": null
+  },
+  {
+    "host": "events.datadoghq.com",
+    "prefix": "/events/",
+    "identity_parameter": null
+  },
+  {
+    "host": "pminyc.org",
+    "prefix": "/calendar",
+    "identity_parameter": "eventId"
+  },
+  {
+    "host": "aicamp.ai",
+    "prefix": "/event/eventdetails/",
+    "identity_parameter": null,
+    "identity_pattern": "W[0-9]{10}"
+  }
 ]

@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { after, before, test } from "node:test";
+import { publicListingUrl } from "../../lib/public-listing-url.ts";
+import { sourceIdentity } from "../../lib/ingestion/sources.ts";
 
 // Always create an isolated database, never reset or alter the user's postgres DB.
 const container = "supabase_db_founder-radar";
@@ -95,6 +97,46 @@ test("all pgTAP contracts pass against migrations and seeds in a disposable data
     t.diagnostic(
       name + ": " + output.match(/\b1\.\.(\d+)/)[1] + " assertions passed",
     );
+  }
+});
+
+test("AICamp URL validation has actual PostgreSQL, ingestion and public-link parity", async () => {
+  const base = "https://aicamp.ai/event/eventdetails/";
+  const canonical = base + "W2099010101";
+  const cases = [
+    [canonical, canonical],
+    [canonical + "/?token=PRIVATE&utm_source=test#fragment", canonical],
+    [canonical.replace("https://", "https://www."), canonical],
+    [base + "W2099010102", base + "W2099010102"],
+    ...[
+      base,
+      base + "calendar",
+      base + "login",
+      base + "w2099010101",
+      base + "X2099010101",
+      base + "W209901010",
+      base + "W20990101012",
+      base + "%572099010101",
+      canonical + "/extra",
+      canonical + "-extra",
+      "https://aicamp.ai/event/other/W2099010101",
+      "https://aicamp.ai/community",
+      canonical.replace("aicamp.ai", "events.aicamp.ai"),
+      canonical.replace("aicamp.ai", "aicamp.ai.evil.test"),
+      canonical.replace("https:", "http:"),
+      canonical.replace("https://", "https://user:PRIVATE@"),
+      canonical.replace("aicamp.ai", "aicamp.ai:8443"),
+    ].map((url) => [url, null]),
+  ];
+  for (const [url, expected] of cases) {
+    assert.equal(publicListingUrl(url), expected, url);
+    assert.equal(sourceIdentity(url)?.source_url ?? null, expected, url);
+    const actual = await sql(
+      "select coalesce(public.public_listing_url('" +
+        url.replaceAll("'", "''") +
+        "'), '<NULL>');",
+    );
+    assert.equal(actual.trim(), expected ?? "<NULL>", url);
   }
 });
 
