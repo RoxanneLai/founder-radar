@@ -61,6 +61,16 @@ export function buildReviewReport(input: unknown, now = new Date()) {
       typeof payload === "object" &&
       "normalization_notes" in payload &&
       Array.isArray(payload.normalization_notes) &&
+      payload.normalization_notes.includes("timezone_normalized_eastern")
+    )
+      warnings.push(
+        "A source-backed Eastern time label was normalized to America/New_York with a date-correct offset. The original quote is unchanged; confirm the local clock time before approval.",
+      );
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "normalization_notes" in payload &&
+      Array.isArray(payload.normalization_notes) &&
       payload.normalization_notes.includes("event_format_normalized_in_person")
     )
       warnings.push(

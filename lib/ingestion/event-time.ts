@@ -17,6 +17,35 @@ function wallClock(instant: number): string {
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+/** Normalize grounded Eastern labels only after NYC attendance and time validation. */
+export function normalizeNycTimeZone(
+  value: string | null,
+  quote: string | null,
+  instant: string,
+): string {
+  if (value === null || value === "America/New_York") return "America/New_York";
+  if (
+    !["ET", "EST", "EDT"].includes(value) ||
+    !new RegExp("\\b" + value + "\\b").test(quote ?? "")
+  )
+    throw new IngestionError("invalid_event_timezone");
+  const seasonalLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    timeZoneName: "short",
+  })
+    .formatToParts(new Date(instant))
+    .find((part) => part.type === "timeZoneName")?.value;
+  const labels = [...(quote ?? "").matchAll(/\b(?:EST|EDT)\b/g)].map(
+    (match) => match[0],
+  );
+  if (
+    (value !== "ET" && value !== seasonalLabel) ||
+    labels.some((label) => label !== seasonalLabel)
+  )
+    throw new IngestionError("invalid_event_timezone");
+  return "America/New_York";
+}
+
 /** Reject recognized explicit date years that contradict the NYC event instant. */
 export function assertQuotedEventYear(instant: string, quote: string): void {
   const months =

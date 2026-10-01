@@ -80,7 +80,7 @@ export type CaptureDetails = Omit<
   "source_id" | "status" | "error_code"
 >;
 
-/** Canonical identity stays stable; preserve only a permitted cited hostname. */
+/** Keep identity stable; preserve a permitted hostname and one optional path slash. */
 export function sourceRetrievalUrl(
   input: string,
   source: SourceIdentity,
@@ -93,6 +93,10 @@ export function sourceRetrievalUrl(
     throw new IngestionError("source_capture_blocked_url");
   const original = new URL(input);
   const clean = new URL(source.source_url);
+  if (original.pathname === clean.pathname + "/")
+    clean.pathname = original.pathname;
+  else if (original.pathname !== clean.pathname)
+    throw new IngestionError("source_capture_blocked_url");
   clean.hostname = original.hostname;
   return clean.toString();
 }

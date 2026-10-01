@@ -142,11 +142,12 @@ test("gateway format enums are canonical for both profiles while runtime inputs 
   }
 });
 
-test("captured founder and career runs accept only the grounded format alias locally without repair or changing private scalars", async () => {
+test("captured founder and career runs normalize grounded format and Eastern aliases without repair or changing private scalars", async () => {
   const text = report + " Product discovery discussion.";
   for (const profile of ["founder", "career"]) {
     const c = profile === "career" ? careerCandidate(text) : candidate();
     c.event_format.value = "in_person";
+    c.time_zone = fact("EDT", "6 PM EDT");
     const repo = memoryRepository();
     let calls = 0;
     const provider = new OpenRouterSearchProvider(
@@ -178,6 +179,11 @@ test("captured founder and career runs accept only the grounded format alias loc
     assert.equal(summary.status, "succeeded");
     assert.equal(summary.events_written, 1);
     assert.equal([...repo.events.values()][0].event_format, "in-person");
+    assert.equal([...repo.events.values()][0].time_zone, "America/New_York");
+    assert.deepEqual(
+      repo.sources.get(url).raw_payload.candidate.time_zone,
+      c.time_zone,
+    );
     assert.equal(
       repo.sources.get(url).raw_payload.candidate.event_format.value,
       "in_person",
@@ -187,6 +193,7 @@ test("captured founder and career runs accept only the grounded format alias loc
       c.event_format.quote,
     );
     assert.deepEqual(repo.sources.get(url).raw_payload.normalization_notes, [
+      "timezone_normalized_eastern",
       "event_format_normalized_in_person",
     ]);
   }
@@ -431,6 +438,75 @@ test("unsafe redirects, changed event IDs, loops and redirect budgets fail witho
     { code: "source_capture_redirect_limit" },
   );
   assert.equal(calls, 1);
+});
+
+test("Meetup slash and WWW redirects preserve identity, strip private parameters and validate snapshots", async () => {
+  const listing = "https://meetup.com/synthetic-group/events/123456789";
+  const identity = sourceIdentity(listing);
+  for (const www of [false, true]) {
+    const requests = [];
+    let lookups = 0;
+    const captured = await captureSourcePage(identity, listing, signal, {
+      now,
+      resolve: async () => {
+        lookups += 1;
+        return dns();
+      },
+      request: async (target) => {
+        requests.push(target.toString());
+        if (requests.length === 1)
+          return response("", 308, {
+            location: target.pathname + "/?utm_source=PRIVATE#private",
+          });
+        if (www && requests.length === 2)
+          return response("", 301, {
+            location:
+              listing.replace("https://", "https://www.") +
+              "/?utm_source=PRIVATE",
+          });
+        return response(report);
+      },
+    });
+    assert.deepEqual(requests, [
+      listing,
+      listing + "/",
+      ...(www ? [listing.replace("https://", "https://www.") + "/"] : []),
+    ]);
+    assert.equal(lookups, requests.length);
+    assert.equal(captured.source_url, listing);
+    assert.equal(captured.redirects, www ? 2 : 1);
+    assert.deepEqual(validateCapturedPages([captured], [identity]), [captured]);
+  }
+  assert.throws(() => sourceRetrievalUrl(listing + "//", identity), {
+    code: "source_capture_blocked_url",
+  });
+  assert.throws(
+    () => sourceRetrievalUrl(listing + "/?token=PRIVATE", identity),
+    { code: "source_capture_blocked_url" },
+  );
+});
+
+test("slash oscillations and a third redirect still fail at unchanged capture bounds", async () => {
+  for (const destinations of [
+    [url + "/", url],
+    [
+      url + "/",
+      url.replace("https://", "https://www.") + "/",
+      url.replace("https://", "https://www."),
+    ],
+  ]) {
+    let calls = 0;
+    await assert.rejects(
+      captureSourcePage(source, url, signal, {
+        resolve: dns,
+        request: async () =>
+          response("", 308, { location: destinations[calls++] }),
+      }),
+      { code: "source_capture_redirect_limit" },
+    );
+    assert.equal(calls, destinations.length);
+    assert.equal(SOURCE_CAPTURE_LIMITS.redirects, 2);
+  }
 });
 
 test("malformed captured-page extraction retains its evidence-path diagnostic without repair", async () => {

@@ -51,7 +51,7 @@ test("AICamp IDs canonicalize across WWW, tracking and private parameters withou
   assert.equal(publicListingUrl(decorated), url);
   assert.equal(
     sourceRetrievalUrl(decorated, sourceIdentity(url)),
-    url.replace("https://", "https://www."),
+    url.replace("https://", "https://www.") + "/",
   );
   assert.deepEqual(
     selectSources([decorated, url, other], 3).map(
@@ -117,7 +117,10 @@ test("AICamp capture strips private parameters and permits only same-ID redirect
       },
     },
   );
-  assert.deepEqual(requests, [url, url.replace("https://", "https://www.")]);
+  assert.deepEqual(requests, [
+    url,
+    url.replace("https://", "https://www.") + "/",
+  ]);
   assert.equal(captured.source_url, url);
   assert.equal(captured.redirects, 1);
   assert.ok(captured.text.includes("Synthetic public event"));

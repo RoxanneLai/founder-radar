@@ -1,5 +1,9 @@
 import { candidateSchema } from "./contracts.ts";
-import { assertQuotedEventYear, resolveNycTime } from "./event-time.ts";
+import {
+  assertQuotedEventYear,
+  normalizeNycTimeZone,
+  resolveNycTime,
+} from "./event-time.ts";
 import { careerCandidateSchema } from "../career/contracts.ts";
 import { assessCareer } from "../career/assessment.ts";
 import type { EventDraft, SearchOptions, SourceIdentity } from "./contracts.ts";
@@ -99,7 +103,6 @@ export function normalizeCandidate(
   const statedTimeZone = text(c.time_zone, report);
   if (c.time_zone.value !== null && !statedTimeZone)
     throw new IngestionError("invalid_event_timezone");
-  const timeZone = statedTimeZone ?? "America/New_York";
   const city = text(c.city, report);
   const region = text(c.region, report);
   const country = text(c.country_code, report);
@@ -131,10 +134,12 @@ export function normalizeCandidate(
   }
   if (!["in-person", "hybrid"].includes(format))
     throw new IngestionError("unsupported_event_format");
-  if (timeZone !== "America/New_York") {
-    throw new IngestionError("invalid_event_timezone");
-  }
   const startsAt = resolveNycTime(startText);
+  const timeZone = normalizeNycTimeZone(
+    statedTimeZone,
+    c.time_zone.quote,
+    startsAt,
+  );
   assertQuotedEventYear(startsAt, c.starts_at.quote!);
   const start = Date.parse(startsAt);
   if (start < Date.parse(options.from) || start >= Date.parse(options.to))
@@ -145,6 +150,7 @@ export function normalizeCandidate(
   let endsAt: string | null = null;
   try {
     endsAt = endText ? resolveNycTime(endText) : null;
+    if (endsAt) normalizeNycTimeZone(statedTimeZone, c.time_zone.quote, endsAt);
   } catch {
     throw new IngestionError("invalid_event_end");
   }
@@ -167,6 +173,9 @@ export function normalizeCandidate(
   const registration = text(c.registration_status, report);
   const normalizationNotes = [
     ...(!statedTimeZone ? ["timezone_inferred_nyc"] : []),
+    ...(statedTimeZone && statedTimeZone !== timeZone
+      ? ["timezone_normalized_eastern"]
+      : []),
     ...(text(c.event_format, report) === "in_person"
       ? ["event_format_normalized_in_person"]
       : []),

@@ -65,6 +65,36 @@ test("format spelling provenance stays private and is disclosed in operator revi
   );
 });
 
+test("Eastern label provenance is disclosed privately without changing public cards", () => {
+  const report = buildReviewReport(
+    snapshot(
+      {},
+      {
+        raw_payload: {
+          normalization_notes: ["timezone_normalized_eastern"],
+          candidate: {
+            time_zone: { value: "ET", quote: "PRIVATE TIME QUOTE" },
+          },
+        },
+      },
+    ),
+    now,
+  );
+  assert.deepEqual(report.blockers, []);
+  assert.match(
+    report.warnings.join(" "),
+    /Eastern.*America\/New_York.*date-correct/,
+  );
+  assert.deepEqual(
+    report.publicPreview,
+    buildReviewReport(snapshot(), now).publicPreview,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(report.publicPreview),
+    /normalization_notes|PRIVATE TIME QUOTE/,
+  );
+});
+
 test("public URLs use a strict listing allowlist and never retain private parameters", () => {
   for (const [input, expected] of [
     [
