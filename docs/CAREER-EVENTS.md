@@ -1,11 +1,12 @@
 # Career discovery
 
-RightRoom helps career entrants prioritize useful rooms, not predict job offers. This increment adds an opt-in NYC career profile; the default founder profile and historical founder-audience relevance remain unchanged.
+RightRoom helps career entrants prioritize useful rooms, not predict job offers. New ingestion commands default to the NYC career profile, and the homepage defaults to career ranking. Explicit `--profile founder` retains the original startup search. Historical saved options without a profile still mean founder; no old runs, evidence, scores, or published records are reinterpreted or migrated.
 
 ## Start without spending
 
 ```bash
-npm run ingest -- --profile career --searches 3 --limit 3
+npm run ingest -- --limit 3
+npm run ingest -- --profile founder --limit 3
 ```
 
 This prints a free plan. It reads non-secret model and career configuration, but never reads `OPENROUTER.key`, opens a database, contacts a provider, or writes data. Career defaults to the next 30 days; founder defaults to 14. Supply both `--from` and `--to` for an explicit window, bounded to 31 days. Live windows still reject stale starts and already-started events.
@@ -16,7 +17,7 @@ Hosted Exa/OpenRouter searches are model-directed, not dedicated site crawlers. 
 
 ## Configuration and eligibility
 
-`config/career.json` contains a generic computer-science graduate/capital-markets technology background, primary product/technical-product roles, fallback technical project/program roles, preferred domains, a profile version, and weights summing to 100. Override it with `--career-config path`. Keep credentials, résumé contact details, and full résumés out of configuration. Update the profile version when changing its meaning; existing stored assessments are not automatically rescored.
+`config/career.json` contains a generic computer-science graduate/capital-markets technology background, primary product/technical-product roles, fallback technical project/program roles, preferred domains, a profile version, and weights summing to 100. Override it with `--career-config path`, with or without explicit `--profile career`. Founder mode rejects that flag and does not read career configuration. Explicit `--profile career` remains supported for scripts. Missing or invalid career configuration fails closed before credentials, database access, or network requests. Keep credentials, résumé contact details, and full résumés out of configuration. Update the profile version when changing its meaning; existing stored assessments are not automatically rescored.
 
 Company engineering talks and bank software/platform events qualify when supported product-career or technical-delivery relevance exists. Preferred domains are bonuses, not exclusions. Founders, recruiters, PM speakers, and advertised jobs are not required. Clearly ineligible, cancelled, past, virtual-only, irrelevant, and closed-without-waitlist listings are rejected. Approval-required/waitlisted events and relevant technical prerequisites remain visible caveats. Unknown price, venue, availability, and hiring are not invented. Attendance restrictions require careful human checking.
 
@@ -44,7 +45,7 @@ Other named communities (Kosli, AICamp, ProductTank, Women In Product, Product S
 
 Paid events may qualify. Unknown dimensions earn no unsupported bonus and have caveats. `founderAccess` is applicable only for named actual startup founders with connected company/role/participation evidence, unknown for insufficient startup evidence, and not applicable to other-company/community events. Founder absence carries no penalty. Scheduled participation does not guarantee attendance or direct conversation; a keynote earns only its supported interaction credit. Human review must distinguish community organizers from actual startups and verify semantic relevance.
 
-`/career` reads only published, non-fixture, upcoming NYC career assessments and ranks by career score, then date and stable ID. `/sample/career` is static and fictional, with no database or registration links. `/` remains the all-published feed. Public assessment fields are strictly validated: components, fixed reasons/cautions, confidence, founder applicability, hiring, and version. Raw quotes, research reports, recovery files, and approval history remain private. Unknowns and inferred NYC timezone show caution text.
+`/` and its compatible `/career` address read only published, non-fixture, upcoming NYC career assessments, excluding closed registration, and rank by career score, then date and stable ID. `/sample/career` is static and fictional, with no database or registration links. `/events` retains the all-published feed and original networking-score ranking; founder-only records are not hidden from that view. Public assessment fields are strictly validated: components, fixed reasons/cautions, confidence, founder applicability, hiring, and version. Raw quotes, research reports, recovery files, and approval history remain private. Unknowns and inferred NYC timezone show caution text.
 
 ## Storage, timezone, and review
 
@@ -55,6 +56,14 @@ A missing timezone defaults to `America/New_York` only after confirmed physical 
 Ingestion and recovery only create private drafts. Use the existing [review workflow](REVIEW-PUBLISH.md) before explicit publication. Changed event/source snapshots invalidate review tokens. Fixtures and published/archived events remain protected. A founder-profile refresh of an editable draft clears its career assessment to avoid stale career claims; it does not overwrite legacy score columns.
 
 Next acceptance step: separately approve a small three-search/three-candidate fresh-window career pilot, inspect its drafts and source pages, and calibrate ranking usefulness. Offline tests validate software boundaries, not live model quality. This increment does not add scheduling, automatic publication/registration, New Jersey, a browser inbox, a watchlist, or per-role views.
+
+### Career-first defaults checkpoint — October 1, 2026
+
+The career homepage, compatible `/career` address, retained `/events` feed, edition-specific loading/retry/sample navigation, and default 30-day career CLI plan are implemented. Explicit founder mode still uses its 14-day default and does not require career configuration. The default three-search budget, paid opt-in, candidate cap, validation, backend selection, and historical missing-profile meaning remain unchanged.
+
+Verification passed formatting, lint, TypeScript, `git diff --check`, and 179 deterministic offline tests (6 unit, 145 ingestion, 17 dashboard, 11 review). A production build, 3 compiled-page checks, and 10 runtime checks passed in a fresh credential-free copy under ignored `codex-tmp/`. Runtime checks cover career homepage/alias ranking and privacy, broader-feed access, edition-specific navigation and streaming, and a freshly initialized temporary SQLite database without Supabase configuration. Only non-fatal npm/workspace warnings were reported.
+
+No paid requests, existing database changes, real-event publication, commits, or pushes were made for this increment. Optional real PostgreSQL integration was not rerun: this change introduces no database schema or query changes. These checks do not close the fresh unassisted career-discovery acceptance gate.
 
 ### First career pilot — September 29, 2026
 

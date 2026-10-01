@@ -2,11 +2,11 @@
 
 ## Status and scope
 
-The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. SQLite is the default; local Supabase remains an explicit option. The default founder profile discovers NYC in-person/hybrid founder/investor listings. Opt-in `--profile career` discovers product/technical-delivery events and computes a separate explainable career assessment. Both persist private drafts with provenance; neither publishes, registers, schedules work, or invents legacy scores. See [career discovery](CAREER-EVENTS.md).
+The implementation is a manually triggered ingestion command using **OpenRouter** and a local-only database. SQLite is the default; local Supabase remains an explicit option. New commands default to career discovery for product/technical-delivery events with a separate explainable career assessment. Explicit `--profile founder` retains NYC in-person/hybrid founder/investor discovery. Historical saved runs with no profile remain founder runs; no data is reinterpreted or migrated. Both profiles persist private drafts with provenance; neither publishes, registers, schedules work, or invents legacy scores. See [career discovery](CAREER-EVENTS.md).
 
 **Live discovery, extraction, generalized schema repair, draft persistence, and repeat-run deduplication now work.** Fresh-window acceptance run `edc10f58-32cd-4ab6-9f50-4317358c5139` succeeded: it refreshed one exact Meetup source, wrote one private draft, and recorded no errors after a bounded repair converted an unfamiliar valid-JSON shape into one canonical candidate with zero scalar mismatches. Manual verification of that listing and an explicit publication decision remain human steps. Candidate-specific repair isolation still ensures that safe canonical siblings continue while unusable siblings remain source-only; invented repair values are never returned.
 
-That acceptance used the historical hosted-fetch/report evidence path. New live commands now use independent bounded page capture and tool-free extraction, described below. This new path has offline verification only; it still requires a separately approved live acceptance run. Historical founder success is not proof of career discovery quality or current source retrievability.
+That acceptance used the historical hosted-fetch/report evidence path. New live commands now use independent bounded page capture and tool-free extraction, described below. Live career source capture has been observed and a manually checked recovery was explicitly published; fresh unassisted career discovery still requires a separately approved acceptance run. Historical founder success and manual recovery are not proof of autonomous career discovery quality or current source retrievability.
 
 ## What happens in one run
 
@@ -60,11 +60,11 @@ npm ci
 npm run ingest -- --limit 3
 ```
 
-Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, proposed search, capture evidence kind/limits, tool-free extraction setting, and API bounds. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default search starts now and ends 14 days later. Run commands from the repository root.
+Without `--live`, the command reads the non-secret model configuration and prints the selected primary and repair model/effort pairs, effective profile, proposed search, capture evidence kind/limits, tool-free extraction setting, and API bounds. It makes no network requests or database changes and never opens `OPENROUTER.key`. The default career search starts now and ends 30 days later; explicit `--profile founder` retains a 14-day default. Both keep three searches and a candidate cap of ten unless overridden. Supplying both date flags preserves that exact window for either profile. Run commands from the repository root.
 
 Plan mode also does not create or open SQLite and does not read `DATABASE_BACKEND`, `SQLITE_DATABASE_PATH`, or Supabase credentials.
 
-Career plans read `config/career.json` (or `--career-config`) and default to 30 days. Use `npm run ingest -- --profile career --searches 3 --limit 3` for a small free plan. Profile/version, planned queries, window/budget, canonical consulted URLs, and acceptance/rejection results are retained privately. Plans are not execution logs. Larger budgets can cost more and require separate live approval.
+Career plans read `config/career.json` (or `--career-config`, which also works when `--profile` is omitted). Use `npm run ingest -- --limit 3` for a small free career plan; explicit `--profile career` remains valid. Use `npm run ingest -- --profile founder --limit 3` for the legacy plan without reading career configuration. Founder mode rejects `--career-config` and search budgets above three. Missing or invalid career configuration fails before key, database, or network access. Profile/version, planned queries, window/budget, canonical consulted URLs, and acceptance/rejection results are retained privately. Plans are not execution logs. Larger budgets can cost more and require separate live approval.
 
 ## Select the backend model and effort
 
@@ -138,7 +138,7 @@ Resolve or copy the exact date window immediately before starting live mode. A l
 | Search interval            | More than zero, at most 31 days                                                  |
 | Live start freshness       | No more than 15 minutes before command execution                                 |
 | OpenRouter API requests    | One research, one extraction if captures succeed, at most one conditional repair |
-| Hosted search-tool calls   | At most 3, requested with `max_tool_calls` and `max_uses`                        |
+| Hosted search-tool calls   | Default 3; career 1–12, founder 1–3, bounded by `max_tool_calls` and `max_uses`  |
 | Direct source capture      | At most 10 listings; 20 seconds each including redirects                         |
 | Capture redirects          | At most 2, same canonical listing identity only                                  |
 | Capture body / text        | 1 MiB response; 16,000 text characters/page; 80,000 total                        |

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, symlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
@@ -37,6 +37,58 @@ function runCli(cwd, args, env = {}) {
   );
 }
 
+test("career is the free CLI default; explicit founder needs no career configuration", async () => {
+  const dir = await directory();
+  await mkdir(dir + "/config");
+  await writeFile(
+    dir + "/config/ingestion.json",
+    await readFile("config/ingestion.json"),
+  );
+  await mkdir(dir + "/OPENROUTER.key");
+  const env = {
+    FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "invalid",
+  };
+  const founder = runCli(dir, ["--profile", "founder", "--limit", "3"], env);
+  assert.equal(founder.status, 0, founder.stderr);
+  const founderPlan = JSON.parse(founder.stdout);
+  assert.equal(founderPlan.profile, "founder");
+  assert.equal(
+    Date.parse(founderPlan.options.to) - Date.parse(founderPlan.options.from),
+    14 * 86400000,
+  );
+  assert.deepEqual(founderPlan.planned_queries, []);
+  assert.equal(founderPlan.paid_calls, false);
+  assert.equal(founderPlan.writes, false);
+  const missingCareer = runCli(dir, [], env);
+  assert.equal(missingCareer.status, 1);
+  assert.match(missingCareer.stderr, /invalid_career_config/);
+  assert.doesNotMatch(missingCareer.stderr, /key|database|network/);
+  await writeFile(
+    dir + "/custom-career.json",
+    await readFile("config/career.json"),
+  );
+  const career = runCli(
+    dir,
+    ["--career-config", "custom-career.json", "--limit", "3"],
+    env,
+  );
+  assert.equal(career.status, 0, career.stderr);
+  const careerPlan = JSON.parse(career.stdout);
+  assert.equal(careerPlan.profile, "career");
+  assert.equal(
+    Date.parse(careerPlan.options.to) - Date.parse(careerPlan.options.from),
+    30 * 86400000,
+  );
+  assert.equal(careerPlan.limits.searchToolCalls, 3);
+  assert.equal(careerPlan.planned_queries.length, 3);
+  assert.equal(careerPlan.paid_calls, false);
+  assert.equal(careerPlan.writes, false);
+  await assert.rejects(readFile(dir + "/data/founder-radar.sqlite"), {
+    code: "ENOENT",
+  });
+});
+
 test("checked-in model and effort defaults have independent CLI precedence without key access", async () => {
   assert.deepEqual(await readModelConfig(), {
     model: "openai/gpt-5.6-luna",
@@ -46,6 +98,10 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   });
   const dir = await directory();
   await mkdir(dir + "/config");
+  await writeFile(
+    dir + "/config/career.json",
+    await readFile("config/career.json"),
+  );
   await writeFile(
     dir + "/config/ingestion.json",
     '{"model":"anthropic/test-model","effort":"high","repair_model":"qwen/test-repair","repair_effort":"none"}',
@@ -118,6 +174,10 @@ test("help needs no config or key; paid approval and database validation precede
   assert.match(help.stdout, /OPENROUTER.key/);
   assert.match(help.stdout, /15 minutes old/);
   await mkdir(dir + "/config");
+  await writeFile(
+    dir + "/config/career.json",
+    await readFile("config/career.json"),
+  );
   await writeFile(
     dir + "/config/ingestion.json",
     '{"model":"openai/gpt-4.1","effort":"medium","repair_model":"qwen/test-repair","repair_effort":"none"}',

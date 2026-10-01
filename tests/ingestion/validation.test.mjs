@@ -323,6 +323,11 @@ test("search windows and candidate limits are bounded", () => {
   assert.deepEqual(validateSearchOptions(options), options);
   assert.equal(
     defaultSearchOptions(new Date("2026-09-01T00:00:00Z")).to,
+    "2026-10-01T00:00:00.000Z",
+  );
+  assert.equal(defaultSearchOptions().profile, "career");
+  assert.equal(
+    defaultSearchOptions(new Date("2026-09-01T00:00:00Z"), "founder").to,
     "2026-09-15T00:00:00.000Z",
   );
   for (const limit of [0, -1, 11, 1.5])

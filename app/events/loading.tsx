@@ -2,9 +2,6 @@ import { Dashboard } from "@/components/Dashboard";
 
 export default function Loading() {
   return (
-    <Dashboard
-      career
-      result={{ status: "loading", events: [], hasMore: false }}
-    />
+    <Dashboard result={{ status: "loading", events: [], hasMore: false }} />
   );
 }

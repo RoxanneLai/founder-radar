@@ -14,9 +14,9 @@ The project grew out of Roxanne's own search for product management opportunitie
 
 RightRoom began as FounderRadar, a working NYC startup-event prototype. That version established the core product mechanics: a static Next.js experience with six fictional events and deterministic ranking, followed by a local-first persistence layer, bounded agentic discovery, live draft collection, source provenance, and a human review boundary. Live runs remain unpublished until explicit approval.
 
-Career discovery is now an opt-in ingestion profile. It finds physically attended NYC product and technical-delivery events, including substantive company engineering talks and financial-technology communities. A configurable, non-personal target profile guides discovery; separate explainable career scores rank supported role fit, people, interaction, domain fit, and practical access. Founders and advertised jobs are not required. The original founder profile remains compatible with historical data.
+Career discovery is now the default ingestion profile. It finds physically attended NYC product and technical-delivery events, including substantive company engineering talks and financial-technology communities. A configurable, non-personal target profile guides discovery; separate explainable career scores rank supported role fit, people, interaction, domain fit, and practical access. Founders and advertised jobs are not required. Explicit `--profile founder` retains the original startup-focused search and historical compatibility.
 
-The main dashboard at `http://localhost:3000` reads all published, non-fixture NYC events from SQLite by default. `/career` ranks published career events; `/sample/career` shows three clearly fictional career examples. The original fictional startup edition remains at `/sample`. Database errors and an empty feed have distinct states; they never silently substitute samples. Supabase remains available through explicit configuration.
+The homepage at `http://localhost:3000` ranks published, non-fixture NYC career events from SQLite by default; `/career` remains a compatible address for the same feed. `/events` preserves the broader all-published feed, including original founder listings. `/sample/career` shows three clearly fictional career examples, and the original fictional startup edition remains at `/sample`. Database errors and an empty career feed have distinct states; they never silently substitute samples or founder-only events. Supabase remains available through explicit configuration.
 
 See [career discovery](docs/CAREER-EVENTS.md) for targeting, search budgets, scoring, and limitations, and [private lead recovery](docs/RECOVERY.md) for moving a failed lead into ordinary draft review using freshly checked evidence. This increment has offline and synthetic verification; a new, separately approved career pilot is still needed to assess live model quality and ranking usefulness.
 
@@ -28,10 +28,12 @@ The local [draft-review workflow](docs/REVIEW-PUBLISH.md) lets an operator list 
 
 ```bash
 npm run ingest -- --limit 3
-npm run ingest -- --profile career --searches 3 --limit 3
+npm run ingest -- --profile founder --limit 3
 ```
 
-After installing dependencies, this prints a plan only: no API requests, key-file reads, database initialization, or writes. The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes one research request, captures bounded public listing text privately, then makes one tool-free extraction request if any captures succeed. A safely source-scoped noncanonical JSON response may trigger at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected. See [source evidence](docs/SOURCE-EVIDENCE.md) for capture limits, failure behavior, and historical compatibility; this new capture path has offline verification, not a completed live acceptance run.
+After installing dependencies, these print plans only: no API requests, key-file reads, database initialization, or writes. The default career plan covers 30 days; explicit founder mode covers 14. Both retain the default three-search budget. Career plans read the non-secret `config/career.json`, with an optional `--career-config` override. Historical saved runs lacking a profile still mean founder; changing defaults does not migrate or rescore data.
+
+The agent uses OpenRouter, with primary and schema-repair model/effort defaults in `config/ingestion.json` and independent per-run overrides. A live run makes one research request, captures bounded public listing text privately, then makes one tool-free extraction request if any captures succeed. A safely source-scoped noncanonical JSON response may trigger at most one tool-free repair request. Live mode reads your ignored `OPENROUTER.key` file and still requires explicit opt-in and a separately approved testing budget. Supabase credentials are required only when that backend is selected. See [source evidence](docs/SOURCE-EVIDENCE.md) for capture limits, failure behavior, and historical compatibility. Live career source capture has been observed, followed by manually checked recovery and explicit publication; a fresh unassisted career-discovery acceptance remains open.
 
 Completed local runs can be inspected without paid requests or database writes using `npm run ingest:inspect -- --run RUN_UUID`. The report contains safe diagnostics and source identities, never source content or raw payloads.
 
@@ -123,9 +125,10 @@ This preserves the latest source snapshot and its original discovery-run attribu
 | `lib/events.ts`              | Deterministic ranking, score bands, and formatting                                     |
 | `components/EventCard.tsx`   | Event presentation                                                                     |
 | `components/Dashboard.tsx`   | Shared dashboard presentation and feed states                                          |
-| `app/page.tsx`               | Request-time published event feed                                                      |
+| `app/page.tsx`               | Career-first homepage with request-time published career ranking                       |
+| `app/events/page.tsx`        | Broader published feed, retaining original networking-score ranking                    |
 | `app/sample/page.tsx`        | Separate static fictional edition                                                      |
-| `app/career/page.tsx`        | Published career events ranked by career fit                                           |
+| `app/career/page.tsx`        | Compatible address for the career homepage                                             |
 | `app/sample/career/page.tsx` | Fictional career shortlist, independent of storage                                     |
 | `supabase/`                  | Optional Postgres persistence, provenance, seed data, and database tests               |
 
@@ -158,7 +161,7 @@ The database contract tests expect the fictional seed events. Prefer `npm run db
 | Completed              | FounderRadar startup-event proof of concept; database schema, provenance, fixture seeds, and contract tests                  |
 | Live checkpoint passed | OpenRouter discovery, source verification, generalized bounded schema repair, SQLite draft persistence, and tests            |
 | Current                | RightRoom product positioning for job seekers choosing high-value in-person professional events                              |
-| Implemented and tested | Opt-in configurable career discovery, evidence-based ranking, career samples, timezone provenance, and private lead recovery |
+| Implemented and tested | Career-first configurable discovery and homepage, evidence-based ranking, samples, timezone provenance, and private recovery |
 | Next                   | Small fresh career pilot, human source verification, and calibration of ranking usefulness                                   |
 | Implemented and tested | Database-backed dashboard, separate sample edition, unknown-field handling, and loading/empty/error states                   |
 | Implemented and tested | Local private draft review, public preview, explicit stale-safe publication, and canonical registration links                |

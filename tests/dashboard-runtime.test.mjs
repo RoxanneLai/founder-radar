@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { mkdir, mkdtemp, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
 import next from "next";
 import { fakeKey, publishedRow } from "./dashboard/helpers.mjs";
@@ -23,6 +25,24 @@ const originalEnv = {
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
 };
 
+const careerAssessment = {
+  version: "career-score-v1",
+  profile_version: "career-v1",
+  score: 80,
+  components: {
+    role_fit: 30,
+    people: 25,
+    interaction: 10,
+    domain: 15,
+    access: 0,
+  },
+  reasons: ["direct_product_fit", "relevant_people", "qa", "preferred_domain"],
+  cautions: ["hiring_unknown", "price_unknown", "participation_not_guaranteed"],
+  confidence: "needs_checking",
+  founderAccess: "not_applicable",
+  hiring: null,
+};
+
 async function listen(server) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -42,7 +62,7 @@ function upcomingRow(overrides = {}) {
   });
 }
 
-async function page(path = "/", userAgent = "Googlebot") {
+async function page(path = "/events", userAgent = "Googlebot") {
   const response = await fetch(appUrl + path, {
     headers: { "User-Agent": userAgent },
     signal: AbortSignal.timeout(15000),
@@ -168,38 +188,28 @@ test("production route renders fresh published records and never exposes private
   assert.equal(databaseCalls, callsBefore + 1);
 });
 
-test("production career route exposes only published validated assessments, never private evidence", async () => {
-  const assessment = {
-    version: "career-score-v1",
-    profile_version: "career-v1",
-    score: 80,
-    components: {
-      role_fit: 30,
-      people: 25,
-      interaction: 10,
-      domain: 15,
-      access: 0,
-    },
-    reasons: [
-      "direct_product_fit",
-      "relevant_people",
-      "qa",
-      "preferred_domain",
-    ],
-    cautions: [
-      "hiring_unknown",
-      "price_unknown",
-      "participation_not_guaranteed",
-    ],
-    confidence: "needs_checking",
-    founderAccess: "not_applicable",
-    hiring: null,
-  };
+test("homepage and career alias rank published career assessments without leaking founder-only or private data", async () => {
+  const assessment = careerAssessment;
   responseRows = [
     upcomingRow({
       title: "Published career example",
       career_assessment: assessment,
+      networking_score: 100,
       raw_payload: "PRIVATE CAREER QUOTE",
+    }),
+    upcomingRow({
+      id: "d9d2e317-b328-421e-8f2c-f9152ee0317d",
+      title: "Higher career fit example",
+      career_assessment: {
+        ...assessment,
+        score: 90,
+        components: { ...assessment.components, interaction: 20 },
+        reasons: [
+          ...assessment.reasons.filter((reason) => reason !== "qa"),
+          "networking",
+        ],
+      },
+      networking_score: 0,
     }),
     upcomingRow({
       title: "PRIVATE CAREER DRAFT",
@@ -207,17 +217,75 @@ test("production career route exposes only published validated assessments, neve
       publication_status: "draft",
     }),
     upcomingRow({ title: "Unassessed founder event" }),
+    upcomingRow({
+      title: "PRIVATE CAREER FIXTURE",
+      career_assessment: assessment,
+      is_fixture: true,
+    }),
+    upcomingRow({
+      title: "PRIVATE CAREER ARCHIVE",
+      career_assessment: assessment,
+      publication_status: "archived",
+    }),
+    upcomingRow({
+      title: "Closed career registration",
+      career_assessment: assessment,
+      registration_status: "closed",
+    }),
   ];
-  const { html } = await page("/career");
-  assert.match(html, /Published career example/);
-  assert.match(html, /Career fit/);
-  assert.match(html, /Hiring/);
-  assert.doesNotMatch(html, /PRIVATE|Unassessed founder event/);
-  assert.equal((html.match(/<article\b/g) ?? []).length, 1);
+  for (const route of ["/", "/career"]) {
+    const { html, headers } = await page(route);
+    assert.match(html, /Published career example/);
+    assert.match(html, /Higher career fit example/);
+    assert.ok(
+      html.indexOf("Higher career fit example") <
+        html.indexOf("Published career example"),
+    );
+    assert.match(html, /Career fit/);
+    assert.match(html, /Hiring/);
+    assert.match(html, /href="\/events"[^>]*>All events/);
+    assert.match(
+      html,
+      /<a\b(?=[^>]*href="\/sample\/career")(?=[^>]*class="edition-link")[^>]*>/,
+    );
+    assert.doesNotMatch(
+      html,
+      /PRIVATE|Unassessed founder event|Closed career registration/,
+    );
+    assert.equal((html.match(/<article\b/g) ?? []).length, 2);
+    assert.match(headers.get("cache-control") ?? "", /no-store/);
+  }
+  assert.match((await page("/events")).html, /Unassessed founder event/);
   const callsBefore = databaseCalls;
   const sample = await page("/sample/career");
   assert.match(sample.html, /fictional career shortlist/i);
+  assert.match(
+    sample.html,
+    /<a\b(?=[^>]*href="\/")(?=[^>]*class="edition-link")[^>]*>/,
+  );
   assert.equal(databaseCalls, callsBefore);
+});
+
+test("career homepage distinguishes an empty career shortlist and retries its own edition", async () => {
+  responseRows = [upcomingRow({ title: "Founder-only published listing" })];
+  const empty = await page("/");
+  assert.match(empty.html, /No published career events yet/);
+  assert.match(empty.html, /Browse all published events/);
+  assert.match(empty.html, /href="\/sample\/career"/);
+  assert.doesNotMatch(empty.html, /Founder-only published listing|<article\b/);
+  assert.match((await page("/events")).html, /Founder-only published listing/);
+  responseStatus = 503;
+  try {
+    const career = await page("/");
+    assert.match(career.html, /form action="\/" method="get"/);
+    assert.match(career.html, /href="\/sample\/career"/);
+    assert.doesNotMatch(career.html, /PRIVATE PROVIDER ERROR/);
+    const all = await page("/events");
+    assert.match(all.html, /form action="\/events" method="get"/);
+    assert.match(all.html, /href="\/sample"/);
+  } finally {
+    responseStatus = 200;
+  }
 });
 
 test("production route distinguishes an empty database from a connection failure and recovers", async () => {
@@ -247,6 +315,34 @@ test("runtime configuration is read at request time without freezing it into the
   process.env.SUPABASE_ANON_KEY = fakeKey();
 });
 
+test("a fresh SQLite-backed career homepage needs no Supabase configuration", async () => {
+  await mkdir("codex-tmp", { recursive: true });
+  const dir = await mkdtemp(resolve("codex-tmp/career-home-runtime-"));
+  const path = join(dir, "isolated.sqlite");
+  const callsBefore = databaseCalls;
+  delete process.env.DATABASE_BACKEND;
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_ANON_KEY;
+  process.env.SQLITE_DATABASE_PATH = path;
+  try {
+    const { html } = await page("/");
+    assert.match(html, /No published career events yet/);
+    assert.match(html, /Browse all published events/);
+    assert.doesNotMatch(
+      html,
+      /<article\b|temporarily unavailable|not connected yet/,
+    );
+    assert.equal((await stat(path)).isFile(), true);
+    assert.match((await page("/events")).html, /No published events yet/);
+    assert.equal(databaseCalls, callsBefore);
+  } finally {
+    process.env.DATABASE_BACKEND = "supabase";
+    process.env.SUPABASE_URL = databaseUrl;
+    process.env.SUPABASE_ANON_KEY = fakeKey();
+    delete process.env.SQLITE_DATABASE_PATH;
+  }
+});
+
 test("the sample route remains available without touching the database", async () => {
   const callsBefore = databaseCalls;
   const { html } = await page("/sample");
@@ -268,34 +364,45 @@ test("auth-disabled local mode sends no placeholder or privileged credentials", 
   }
 });
 
-test("browser requests stream a loading state before the database result", async () => {
+test("browser requests stream edition-specific loading before career and all-events results", async () => {
   delay = 500;
-  responseRows = [upcomingRow({ title: "Delayed published record" })];
+  responseRows = [
+    upcomingRow({
+      title: "Delayed published record",
+      career_assessment: careerAssessment,
+    }),
+  ];
   try {
-    const response = await fetch(appUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(15000),
-    });
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let first = "";
-    while (!first.includes("Loading your shortlist")) {
-      const chunk = await reader.read();
-      assert.equal(
-        chunk.done,
-        false,
-        "Expected loading state before the stream ended",
-      );
-      first += decoder.decode(chunk.value, { stream: true });
+    for (const [route, label] of [
+      ["/", "Career fit"],
+      ["/events", "Score ↓"],
+    ]) {
+      const response = await fetch(appUrl + route, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(15000),
+      });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let first = "";
+      while (!first.includes("Loading your shortlist")) {
+        const chunk = await reader.read();
+        assert.equal(
+          chunk.done,
+          false,
+          "Expected loading state before the stream ended",
+        );
+        first += decoder.decode(chunk.value, { stream: true });
+      }
+      assert.doesNotMatch(first, /Delayed published record/);
+      assert.match(first, new RegExp(label));
+      let rest = "";
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        rest += decoder.decode(chunk.value, { stream: true });
+      }
+      assert.match(rest, /Delayed published record/);
     }
-    assert.doesNotMatch(first, /Delayed published record/);
-    let rest = "";
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      rest += decoder.decode(chunk.value, { stream: true });
-    }
-    assert.match(rest, /Delayed published record/);
   } finally {
     delay = 0;
   }

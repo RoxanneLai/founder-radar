@@ -121,11 +121,35 @@ function repository(path) {
   );
 }
 
-test("career config and CLI keep founder defaults, diversify budgets and reject ambiguous flags", () => {
+test("CLI defaults to career while explicit founder and historical options retain their behavior", () => {
   assert.equal(target.weights.role_fit, 30);
+  const defaults = parseIngestionArgs([], now).options;
+  assert.equal(defaults.profile, "career");
+  assert.equal(defaults.searches ?? 3, 3);
+  assert.equal(defaults.limit, 10);
+  assert.deepEqual(
+    defaults,
+    parseIngestionArgs(["--profile", "career"], now).options,
+  );
   assert.equal(
-    parseIngestionArgs([], now).options.to,
+    parseIngestionArgs(["--profile", "founder"], now).options.to,
     "2026-09-15T12:00:00.000Z",
+  );
+  assert.equal(defaults.to, "2026-10-01T12:00:00.000Z");
+  assert.equal(
+    parseIngestionArgs(["--career-config", "custom.json"], now)
+      .careerConfigPath,
+    "custom.json",
+  );
+  assert.equal(
+    parseIngestionArgs(["--searches", "4"], now).options.searches,
+    4,
+  );
+  assert.equal(schemaForProfile(), schemaForProfile("founder"));
+  assert.deepEqual(
+    parseIngestionArgs(["--from", options.from, "--to", options.to], now)
+      .options,
+    { ...defaults, from: options.from, to: options.to },
   );
   const parsed = parseIngestionArgs(
     ["--profile", "career", "--searches", "12", "--limit", "3"],
@@ -151,8 +175,12 @@ test("career config and CLI keep founder defaults, diversify budgets and reject 
   );
   for (const args of [
     ["--profile", "bad"],
+    ["--profile", ""],
+    ["--profile"],
+    ["--profile", "career", "--profile", "founder"],
     ["--profile", "career", "--searches", "13"],
-    ["--searches", "4"],
+    ["--profile", "founder", "--searches", "4"],
+    ["--profile", "founder", "--career-config", "custom.json"],
     ["--searches", "0"],
     ["--profile", "career", "--searches", "3", "--searches", "3"],
     ["--profile", "career", "--searches"],
@@ -191,16 +219,14 @@ test("career plan is free and fails before key/database/network reads", async ()
         timeout: 10000,
       },
     );
-  const result = run([
-    "--profile",
-    "career",
-    "--searches",
-    "3",
-    "--limit",
-    "3",
-  ]);
+  const result = run(["--limit", "3"]);
   assert.equal(result.status, 0, result.stderr);
   const plan = JSON.parse(result.stdout);
+  assert.equal(plan.profile, "career");
+  assert.equal(
+    Date.parse(plan.options.to) - Date.parse(plan.options.from),
+    30 * 86400000,
+  );
   assert.equal(plan.paid_calls, false);
   assert.equal(plan.writes, false);
   assert.equal(plan.executed_queries, null);

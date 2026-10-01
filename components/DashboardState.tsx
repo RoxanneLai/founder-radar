@@ -47,17 +47,26 @@ export function DashboardState({
           ? "No published career events yet"
           : message.title}
       </h3>
-      <p>{message.description}</p>
+      <p>
+        {career && status === "empty"
+          ? "There are no published career events starting in the next 30 days. Other published events may be available in All events; discovered drafts stay private until explicitly published."
+          : message.description}
+      </p>
       {status !== "loading" && (
         <div className="feed-actions">
           {status === "unavailable" && (
-            <form action={career ? "/career" : "/"} method="get">
+            <form action={career ? "/" : "/events"} method="get">
               <button type="submit">Try again</button>
             </form>
           )}
           <Link href={career ? "/sample/career" : "/sample"} prefetch={false}>
             Explore sample edition
           </Link>
+          {career && status === "empty" && (
+            <Link href="/events" prefetch={false}>
+              Browse all published events
+            </Link>
+          )}
         </div>
       )}
     </div>

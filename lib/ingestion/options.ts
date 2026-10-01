@@ -16,11 +16,18 @@ const optionsSchema = z
   })
   .strict();
 
-export function defaultSearchOptions(now = new Date()): SearchOptions {
+/** New commands default to career; absent profiles in saved options stay historical. */
+export function defaultSearchOptions(
+  now = new Date(),
+  profile: NonNullable<SearchOptions["profile"]> = "career",
+): SearchOptions {
   return {
     from: now.toISOString(),
-    to: new Date(now.getTime() + 14 * DAY_MS).toISOString(),
+    to: new Date(
+      now.getTime() + (profile === "career" ? 30 : 14) * DAY_MS,
+    ).toISOString(),
     limit: 10,
+    profile,
   };
 }
 

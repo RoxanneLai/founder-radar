@@ -59,8 +59,8 @@ export function Dashboard({
               href={
                 sample
                   ? career
-                    ? "/career"
-                    : "/"
+                    ? "/"
+                    : "/events"
                   : career
                     ? "/sample/career"
                     : "/sample"
@@ -72,10 +72,10 @@ export function Dashboard({
             </Link>
             <nav className="edition-nav" aria-label="Event editions">
               <Link href="/" prefetch={false}>
-                All events
-              </Link>
-              <Link href="/career" prefetch={false}>
                 Career events
+              </Link>
+              <Link href="/events" prefetch={false}>
+                All events
               </Link>
               <Link href="/sample/career" prefetch={false}>
                 Career sample

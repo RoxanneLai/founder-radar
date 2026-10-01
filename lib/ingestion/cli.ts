@@ -11,7 +11,9 @@ export const INGEST_HELP = [
   "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",
   "                 [--repair-model vendor/model-id] [--repair-effort level]",
   "                 [--profile founder|career] [--searches 1..12] [--career-config path]",
-  "Career defaults to a 30-day window; founder defaults to 14 days. Searches are a budget, not a draft guarantee.",
+  "Default profile: career, with a 30-day window. Use --profile founder for the legacy 14-day startup search.",
+  "Both default to 3 hosted searches. Searches are a budget, not a draft guarantee.",
+  "--career-config overrides config/career.json for career discovery, including the default profile.",
   "Default: print a plan only. No network, database writes, or API credentials needed.",
   "Model and effort independently override config/ingestion.json (or --config).",
   "Repair model and effort are independent overrides used only for one tool-free schema repair.",
@@ -67,9 +69,10 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     !["career", "founder"].includes(values.profile)
   )
     throw new IngestionError("invalid_cli_arguments");
+  const profile = (values.profile ?? "career") as "career" | "founder";
   if (
     values["career-config"] === "" ||
-    (values["career-config"] !== undefined && values.profile !== "career")
+    (values["career-config"] !== undefined && profile !== "career")
   )
     throw new IngestionError("invalid_cli_arguments");
   if (
@@ -99,9 +102,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     )
   )
     throw new IngestionError("invalid_cli_arguments");
-  const defaults = defaultSearchOptions(now);
-  if (values.profile === "career")
-    defaults.to = new Date(now.getTime() + 30 * 86400000).toISOString();
+  const defaults = defaultSearchOptions(now, profile);
   if ((values.from && !values.to) || (!values.from && values.to))
     throw new IngestionError("provide_both_dates");
   if (values.limit !== undefined && !/^\d+$/.test(values.limit))
@@ -110,9 +111,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     from: values.from ?? defaults.from,
     to: values.to ?? defaults.to,
     limit: values.limit === undefined ? defaults.limit : Number(values.limit),
-    ...(values.profile
-      ? { profile: values.profile as "career" | "founder" }
-      : {}),
+    profile,
     ...(values.searches ? { searches: Number(values.searches) } : {}),
   });
   return {

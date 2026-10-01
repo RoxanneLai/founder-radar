@@ -2,7 +2,7 @@
 
 ## RightRoom product focus
 
-RightRoom helps job seekers choose worthwhile in-person professional events. `/` shows all published NYC events; `/career` shows reviewed career assessments ranked by career fit. `/sample/career` is a separate fictional career example with explainable components, founder applicability, hiring unknowns, and caveats. `/sample` retains the original startup edition and legacy score meanings. Both real feeds keep drafts/evidence private and require existing explicit publication review. See [career targeting and ranking](CAREER-EVENTS.md).
+RightRoom helps job seekers choose worthwhile in-person professional events. `/` is the career-first homepage; `/career` remains a compatible address for the same reviewed career assessments ranked by career fit. `/events` preserves all published NYC events, including the original founder listings. `/sample/career` is a separate fictional career example with explainable components, founder applicability, hiring unknowns, and caveats. `/sample` retains the original startup edition and legacy score meanings. Both real feeds keep drafts/evidence private and require existing explicit publication review. See [career targeting and ranking](CAREER-EVENTS.md).
 
 The product name, page titles, recommendations, and job-seeker messaging use RightRoom. Internal database filenames and service identifiers retain `founder-radar` for compatibility with existing local data. See the [README](../README.md) for the audience, product direction, and roadmap.
 
@@ -10,7 +10,9 @@ The product name, page titles, recommendations, and job-seeker messaging use Rig
 
 The main route (`/`) reads the selected local database at request time. SQLite is the default; Supabase remains optional. The original fictional edition is at `/sample`, with clear labels, no registration links, and indexing disabled. There is no automatic sample fallback when the database is empty or unavailable.
 
-Page loads never run the ingestion agent, call OpenAI, calculate scores, publish drafts, or write to the database.
+After SQLite's schema initialization, page loads only read events: they never run the ingestion agent, make paid model calls, calculate scores, or publish drafts. Changing the homepage does not migrate data or add career assessments to founder-only records.
+
+An empty career shortlist can coexist with published founder-only events. Its explicit “Browse all published events” link opens `/events`; no broader records are silently substituted. Retry and sample links stay in their respective edition. The career sample returns to `/`, while the original startup sample returns to `/events`.
 
 ## Start with SQLite
 
@@ -52,7 +54,7 @@ With the existing six seeded fixtures and no published real events, the connecte
 - Select only the columns needed to validate and render cards. Raw source evidence, diagnostics, internal timestamps, and scoring implementation metadata are not passed into the card model.
 - Filter to `publication_status = published` and `is_fixture = false`. Row-level security independently prevents anonymous and authenticated readers from reading drafts or archives, and denies writes.
 - Show in-person or hybrid events in New York, NY, US, using `America/New_York`, starting from the request time up to (but not including) 30 days later. Cancelled events are excluded. Already-started and past events are excluded.
-- Rank saved networking scores highest first, with null scores last, then start time and stable ID. Zero is a valid score, not an unknown value.
+- On `/` and `/career`, require a validated career assessment and exclude closed registration; rank saved career scores highest first, then start time and stable ID. On `/events`, retain networking-score ranking, with null scores last and the same tie-breakers. Zero is a valid score, not an unknown value.
 - Display at most 50 events. A 51st row is used only to indicate that the list is capped. There is no pagination in this increment.
 - Disable caching and automatic database retries. Supabase reads have an eight-second timeout. SQLite uses a bounded lock wait and WAL concurrency. A new request sees database changes rather than a build-time snapshot.
 - Validate returned rows and recheck visibility before creating public card objects. Malformed required fields produce a safe unavailable state. Blank optional text becomes unknown.
@@ -77,7 +79,7 @@ npm run test:next:runtime
 npm run db:test:isolated
 ```
 
-`test:next` checks the built sample HTML and confirms `/` is not prerendered. `test:next:runtime` starts a production Next.js server and a synthetic database HTTP server on temporary loopback ports. It tests fresh data, privacy, configuration, empty/error/recovery states, and loading-state streaming. It never uses the real database or a paid API, and closes both servers when finished. Run it from your regular Terminal if the sandbox blocks local listening ports.
+`test:next` checks the built sample HTML and confirms `/`, `/career`, and `/events` are not prerendered. `test:next:runtime` starts a production Next.js server and a synthetic database HTTP server on temporary loopback ports. It tests career homepage/alias parity and ranking, retained all-events access, privacy, configuration, edition-specific empty/error/recovery states, sample navigation, and loading-state streaming. It never uses the real database or a paid API, and closes both servers when finished. Run it from your regular Terminal if the sandbox blocks local listening ports.
 
 The isolated database suite applies migrations and seeds to a disposable database and checks actual database permissions; it removes that database afterwards without modifying the normal one. See [the integration checkpoint](INTEGRATION-PROGRESS.md) for the verified results and environment limitations from this cycle.
 

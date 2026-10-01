@@ -8,5 +8,5 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   retry: () => void;
 }) {
-  return <FeedError retry={retry} career />;
+  return <FeedError retry={retry} />;
 }

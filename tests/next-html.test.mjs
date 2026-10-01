@@ -21,6 +21,7 @@ test("the published feed is dynamic while the sample edition is prerendered", as
   assert.equal(manifest.routes["/"], undefined);
   assert.ok(manifest.routes["/sample"]);
   assert.equal(manifest.routes["/career"], undefined);
+  assert.equal(manifest.routes["/events"], undefined);
   assert.ok(manifest.routes["/sample/career"]);
 });
 
@@ -35,4 +36,8 @@ test("career sample is clearly fictional and explains scores, unknowns and cauti
   assert.match(html, /ranking hypothesis/);
   assert.equal((html.match(/<article\b/g) ?? []).length, 3);
   assert.doesNotMatch(html, /raw_payload|source_verification|research_report/);
+  assert.match(
+    html,
+    /<a\b(?=[^>]*href="\/")(?=[^>]*class="edition-link")[^>]*>/,
+  );
 });

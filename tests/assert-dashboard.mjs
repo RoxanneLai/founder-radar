@@ -10,6 +10,10 @@ export function assertDashboardHtml(html) {
   assert.match(html, /These are not live listings/);
   assert.match(html, /Sample edition · All listings are fictional/);
   assert.match(html, /href="\/"/);
+  assert.match(
+    html,
+    /<a\b(?=[^>]*href="\/events")(?=[^>]*class="edition-link")[^>]*>/,
+  );
   assert.equal((html.match(/<article\b/g) ?? []).length, 6);
   assert.equal((html.match(/<h4[^>]*>/g) ?? []).length, 6);
   assert.equal((html.match(/class="downside"/g) ?? []).length, 5);
