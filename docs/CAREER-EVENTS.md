@@ -47,6 +47,8 @@ The AICamp family was verified against two public NYC pages: the [Google Cloud b
 
 Other named communities (Kosli, ProductTank, Women In Product, Product School, Supermomos, NY Tech Alliance, and Tech:NYC) are discovery targets; their events must resolve to an already supported individual listing. ProductTank's sampled NYC event uses Meetup, and Product School's NYC conference uses Eventbrite, so neither needs a new whole-site allowance. Direct arbitrary organizer URLs are deliberately not accepted. Extending the registry requires verified examples, matching JavaScript and an additive Supabase `public_listing_url` migration, plus parity tests. There is no semantic cross-platform event matching. Adding a source family makes it eligible for model-directed discovery; it does not guarantee a search of that community or any usable drafts.
 
+The [saved discovery-diversity audit](DISCOVERY-DIVERSITY-AUDIT.md) found that seven completed career runs retained 12 selections across only four listing identities. Existing exclusions cover recently cancelled, unlinked sources, not already-known events. The recommendation is a separately approved expansion intent alongside the existing refresh behavior; it is not implemented yet, and does not authorize a larger search budget or new paid calls.
+
 ## Scores and public display
 
 New assessments use `career-score-v2`; saved `career-score-v1` assessments remain readable with their original scores. Both versions separate usefulness from evidence confidence and use the same weights:
