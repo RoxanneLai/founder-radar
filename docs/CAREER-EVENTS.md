@@ -49,17 +49,29 @@ Other named communities (Kosli, ProductTank, Women In Product, Product School, S
 
 ## Scores and public display
 
-`career-score-v1` separates usefulness from evidence confidence:
+New assessments use `career-score-v2`; saved `career-score-v1` assessments remain readable with their original scores. Both versions separate usefulness from evidence confidence and use the same weights:
 
 | Component        | Weight | Initial supported-evidence rule                                                                                                |
 | ---------------- | -----: | ------------------------------------------------------------------------------------------------------------------------------ |
 | Role fit         |     30 | Direct product 100%, adjacent product 75%, direct fallback delivery 50%, adjacent delivery 25%                                 |
 | Relevant people  |     25 | Named relevant employees or connected named startup founders scheduled to participate; sponsors/venue logos alone do not count |
 | Interaction      |     20 | Networking/collaboration 100%, Q&A 50%, presentation alone no conversation bonus                                               |
-| Domain fit       |     15 | Exact configured domain match; unfamiliar domains may still qualify                                                            |
+| Domain fit       |     15 | Configured domain match, including narrowly supported compound labels in v2; unfamiliar domains may still qualify              |
 | Practical access |     10 | Equal quarters for explicit eligibility, known venue, registration availability, and explicit free admission with currency     |
 
 Paid events may qualify. Unknown dimensions earn no unsupported bonus and have caveats. `founderAccess` is applicable only for named actual startup founders with connected company/role/participation evidence, unknown for insufficient startup evidence, and not applicable to other-company/community events. Founder absence carries no penalty. Scheduled participation does not guarantee attendance or direct conversation; a keynote earns only its supported interaction credit. Human review must distinguish community organizers from actual startups and verify semantic relevance.
+
+### Domain-label calibration
+
+Version 2 retains case-insensitive exact preferred-domain matches and recognizes whole configured terms in compound labels separated by `and`, `&`, comma, slash or semicolon. Newly recognized compounds require support in that domain fact's own exact, source-scoped quote, not another quote or the rest of the page. They earn the domain weight only once, even when several configured preferences match. Empty segments, more than eight segments, substring/fuzzy matches and compounds with explicit negative context (`not`, `no`, `without`, `excluding`, `unrelated`) in the quote receive no new bonus. These conservative textual checks are not a general semantic classifier.
+
+The reviewed developer-tools/observability compound has one narrow exception to literal quote matching: a two-part label containing exactly `developer tools` and `observability` can match the configured `developer tools` preference when its quote states observability together with open-source, software, database, Postgres or production context. Observability alone, unrelated nontechnical usage, additional compound parts without literal preferred-domain support, and unconfigured domains do not acquire this alias. Other domains receive no inferred synonym mapping. Unknown domains remain null and retain their caution; no domain match can bypass event eligibility or quote-grounding validation.
+
+Original model labels and quotes are unchanged in private evidence; new derived assessments are tagged v2. No schema migration, automatic rescore, profile edit, new model call or provider prompt change is required. Existing draft/published records are not rewritten. Any deliberate refresh still follows reviewed/published protection and explicit publication approval.
+
+Offline calibration verification passed formatting, lint, TypeScript, `git diff --check` and all 193 deterministic tests (6 unit, 158 ingestion, 17 dashboard, 12 review). A production build, three compiled-page checks and ten runtime checks passed in a fresh credential-free copy under ignored `codex-tmp/`. Regression coverage includes compound punctuation/case/spacing, one-bonus limits, missing/unconfigured/unrelated/negative evidence, exact source-quote grounding, immutable model facts, mixed v1/v2 public reads, stale approval and protection of historical published assessments. Optional PostgreSQL integration was not rerun; there are no SQL or migration changes. Normal tests use synthetic evidence and isolated databases, not live model quality.
+
+A separate read-only diagnostic of the reviewed Meetup draft's saved evidence produced a hypothetical v2 score of 62.5/100 (15 domain points); its stored v1 assessment remained 47.5/100. This is a calculation check, not a database rescore or new factual verification. No paid requests, existing database writes or publication were performed for calibration. Broader domain synonym coverage and search diversity remain separate work.
 
 `/` and its compatible `/career` address read only published, non-fixture, upcoming NYC career assessments, excluding closed registration, and rank by career score, then date and stable ID. `/sample/career` is static and fictional, with no database or registration links. `/events` retains the all-published feed and original networking-score ranking; founder-only records are not hidden from that view. Public assessment fields are strictly validated: components, fixed reasons/cautions, confidence, founder applicability, hiring, and version. Raw quotes, research reports, recovery files, and approval history remain private. Unknowns and inferred NYC timezone show caution text.
 

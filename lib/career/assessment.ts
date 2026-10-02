@@ -3,6 +3,7 @@ import type { CareerAssessment } from "./contracts.ts";
 import type { CareerTarget } from "./profile.ts";
 import type { EventDraft } from "../ingestion/contracts.ts";
 import { IngestionError } from "../ingestion/errors.ts";
+import { matchesPreferredDomain } from "./domain.ts";
 
 /** Require exact contiguous quotes for every career fact, scoped to this evidence. */
 function checkQuotes(value: unknown, evidence: string): void {
@@ -95,11 +96,10 @@ export function assessCareer(
       ),
   );
   const interaction = career.interaction.value;
-  const domainMatch =
-    career.domain.value !== null &&
-    target.preferred_domains.some(
-      (domain) => domain.toLowerCase() === career.domain.value?.toLowerCase(),
-    );
+  const domainMatch = matchesPreferredDomain(
+    career.domain,
+    target.preferred_domains,
+  );
   const access =
     (career.eligibility.value === "open" ? 0.25 : 0) +
     (event.venue_name ? 0.25 : 0) +
@@ -162,7 +162,7 @@ export function assessCareer(
   if (components.people) cautions.push("participation_not_guaranteed");
   if (founderAccess === "unknown") cautions.push("founders_unknown");
   return careerAssessmentSchema.parse({
-    version: "career-score-v1",
+    version: "career-score-v2",
     profile_version: target.version,
     score: Object.values(components).reduce((sum, value) => sum + value, 0),
     components,

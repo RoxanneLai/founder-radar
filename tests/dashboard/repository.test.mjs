@@ -49,7 +49,7 @@ test("Supabase career reads request career ordering and expose no evidence or un
       }),
       publishedRow({
         id: "10000000-0000-4000-8000-000000000002",
-        career_assessment: assessment(30),
+        career_assessment: { ...assessment(30), version: "career-score-v2" },
         networking_score: 1,
       }),
       publishedRow({
@@ -69,6 +69,10 @@ test("Supabase career reads request career ordering and expose no evidence or un
   assert.deepEqual(
     result.events.map((event) => event.careerAssessment.score),
     [30, 20],
+  );
+  assert.deepEqual(
+    result.events.map((event) => event.careerAssessment.version),
+    ["career-score-v2", "career-score-v1"],
   );
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE|raw_payload/);
 });

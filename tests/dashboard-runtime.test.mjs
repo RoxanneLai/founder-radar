@@ -202,6 +202,7 @@ test("homepage and career alias rank published career assessments without leakin
       title: "Higher career fit example",
       career_assessment: {
         ...assessment,
+        version: "career-score-v2",
         score: 90,
         components: { ...assessment.components, interaction: 20 },
         reasons: [

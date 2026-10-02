@@ -13,6 +13,7 @@ import {
 } from "../../lib/career/profile.ts";
 import {
   careerCandidateSchema,
+  careerAssessmentSchema,
   schemaForProfile,
 } from "../../lib/career/contracts.ts";
 import { normalizeCandidate } from "../../lib/ingestion/normalize.ts";
@@ -246,11 +247,116 @@ test("career events qualify without founders/jobs and keep legacy schema separat
   assert.equal(schemaForProfile("founder").safeParse(c).success, false);
   const draft = normalize(c);
   assert.equal(draft.career_assessment.score, 95);
+  assert.equal(draft.career_assessment.version, "career-score-v2");
   assert.equal(draft.career_assessment.founderAccess, "not_applicable");
   assert.equal(draft.career_assessment.hiring, null);
   assert.ok(draft.career_assessment.cautions.includes("timezone_inferred_nyc"));
   assert.equal(draft.price_amount_cents, null);
   assert.equal(c.time_zone.value, null);
+});
+
+test("compound preferred domains earn one supported bonus without changing model facts or other components", () => {
+  const quote =
+    "An evening on open source, observability, and production software.";
+  const text = evidence + " " + quote;
+  const c = careerCandidate();
+  c.career.domain = fact("developer tools and observability", quote);
+  const original = structuredClone(c);
+  const baseline = structuredClone(c);
+  baseline.career.domain = fact(null);
+  const before = normalize(baseline, careerOptions, text).career_assessment;
+  const after = normalize(c, careerOptions, text).career_assessment;
+  assert.equal(after.components.domain, 15);
+  assert.equal(after.score, before.score + 15);
+  assert.ok(after.reasons.includes("preferred_domain"));
+  for (const field of ["role_fit", "people", "interaction", "access"])
+    assert.equal(after.components[field], before.components[field]);
+  assert.deepEqual(c, original);
+  assert.equal(after.version, "career-score-v2");
+  assert.equal(
+    careerAssessmentSchema.safeParse({ ...after, version: "career-score-v1" })
+      .success,
+    true,
+  );
+  assert.equal(
+    careerAssessmentSchema.safeParse({ ...after, version: "career-score-v3" })
+      .success,
+    false,
+  );
+  const restricted = {
+    ...careerOptions,
+    career_target: { ...target, preferred_domains: ["fintech"] },
+  };
+  assert.equal(
+    normalize(c, restricted, text).career_assessment.components.domain,
+    0,
+  );
+  c.career.domain.quote =
+    "Invented observability and production software evidence.";
+  assert.throws(
+    () => normalize(c, careerOptions, text),
+    /unsupported_career_evidence/,
+  );
+});
+
+test("compound matching is whole-term, quote-scoped, bounded and conservative about missing or negative evidence", () => {
+  const quote =
+    "Developer tools, fintech and enterprise platforms enable production observability.";
+  const text = evidence + " " + quote;
+  for (const label of [
+    "DEVELOPER TOOLS & OBSERVABILITY",
+    "observability / developer tools",
+    "developer tools, observability",
+    "fintech and enterprise platforms",
+    "  developer   tools ; observability  ",
+  ]) {
+    const c = careerCandidate();
+    c.career.domain = fact(label, quote);
+    assert.equal(
+      normalize(c, careerOptions, text).career_assessment.components.domain,
+      15,
+      label,
+    );
+  }
+  for (const [label, supporting] of [
+    ["developer tools and observability", "Public attendance welcome."],
+    [
+      "developer tools and observability",
+      "Observability of wildlife habitats.",
+    ],
+    [
+      "developer tools and observability",
+      "Not about developer tools or production observability.",
+    ],
+    ["developer tools and wildlife", "Production observability."],
+    [
+      "developer tools and observability and wildlife",
+      "Production observability.",
+    ],
+    ["nondeveloper tools and observability", "Production observability."],
+    ["fintech and infrastructure", "Fintechnology infrastructure."],
+    ["developer tools and", quote],
+    ["observability", "Production observability."],
+    [
+      "developer tools and " + Array(8).fill("observability").join(" and "),
+      quote,
+    ],
+  ]) {
+    const c = careerCandidate();
+    c.career.domain = fact(label, supporting);
+    assert.equal(
+      normalize(c, careerOptions, text + " " + supporting).career_assessment
+        .components.domain,
+      0,
+      label + ": " + supporting,
+    );
+  }
+  const unknown = careerCandidate();
+  unknown.career.domain = fact(null);
+  assert.equal(normalize(unknown).career_assessment.components.domain, 0);
+  assert.ok(
+    normalize(unknown).career_assessment.cautions.includes("domain_unknown"),
+  );
 });
 
 test("unknown registration stays null/null and becomes a visible caution, not fabricated availability", () => {
@@ -726,7 +832,20 @@ test("SQLite career ingestion, safe inspector and stale publication review share
   const preview = buildReviewReport(review, now);
   assert.ok(preview.warnings.some((warning) => warning.includes("Timezone")));
   assert.equal(preview.publicPreview.card.careerAssessment.score, 95);
+  assert.equal(
+    preview.publicPreview.card.careerAssessment.version,
+    "career-score-v2",
+  );
   const db = openSqliteDatabase(path);
+  // Seed a historical assessment in this isolated fixture; reads must not rescore it.
+  const historical = {
+    ...review.event.career_assessment,
+    version: "career-score-v1",
+  };
+  db.prepare("update events set career_assessment = ? where id = ?").run(
+    JSON.stringify(historical),
+    source.event_id,
+  );
   db.prepare("update events set updated_at = ? where id = ?").run(
     "2026-09-01T13:00:00.000Z",
     source.event_id,
@@ -768,6 +887,7 @@ test("SQLite career ingestion, safe inspector and stale publication review share
     now,
   });
   assert.equal(feed.events.length, 1);
+  assert.deepEqual(feed.events[0].careerAssessment, historical);
   assert.doesNotMatch(
     JSON.stringify(feed),
     /Product discovery and prioritization|raw_payload|research_report/,
@@ -779,6 +899,12 @@ test("SQLite career ingestion, safe inspector and stale publication review share
     signal: new AbortController().signal,
   });
   assert.equal(rerun.events_written, 0);
+  const protectedFeed = await loadDashboard({
+    career: true,
+    env: { SQLITE_DATABASE_PATH: path },
+    now,
+  });
+  assert.deepEqual(protectedFeed.events[0].careerAssessment, historical);
 });
 
 test("normalization failures persist bounded diagnostics and keep good evidence", async () => {

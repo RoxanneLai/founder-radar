@@ -143,7 +143,7 @@ export function outputSchemaForProfile(profile?: string): z.ZodType {
 
 export const careerAssessmentSchema = z
   .object({
-    version: z.literal("career-score-v1"),
+    version: z.enum(["career-score-v1", "career-score-v2"]),
     profile_version: z.string().max(160),
     score: z.number().min(0).max(100),
     components: z
