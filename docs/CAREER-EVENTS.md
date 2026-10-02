@@ -2,6 +2,20 @@
 
 RightRoom helps career entrants prioritize useful rooms, not predict job offers. New ingestion commands default to the NYC career profile, and the homepage defaults to career ranking. Explicit `--profile founder` retains the original startup search. Historical saved options without a profile still mean founder; no old runs, evidence, scores, or published records are reinterpreted or migrated.
 
+## Current live checkpoint — October 1, 2026
+
+The bounded fresh-window career pilot passed in run `1fea9bd8-b4b8-4784-89d0-f1a7243b7540`: window `2026-10-01T23:27:14.227Z` through `2026-10-15T23:27:14.227Z`, three search slots, and a three-source cap. Both existing sources were captured successfully and both extracted candidates were canonical, schema-valid and source-matched. One new private draft was written; the already published FINOS event was protected. The run completed in 27.341 seconds with no errors, retries or repair request. Two Luna/medium requests reported $0.02819419 combined cost; billing remains unverified and search execution counters were not reported.
+
+Read-only comparison with the pre-run SQLite backup confirmed that the published FINOS event row and publication-review history were unchanged. There was no new publication. A separate free native-capture preflight in the user's Terminal retrieved Meetup through two permitted redirects; this live run's selected Meetup retrieval URL needed zero redirects. Sandbox capture remained unavailable even after an approved retry, so Terminal execution was necessary.
+
+The new draft, [Supabase x Grafana & Friends NYC](https://www.meetup.com/grafana-and-friends-nyc/events/316750265/), matches the captured listing's title, organizing community, October 14, 2026 date, 6–9 PM Eastern schedule, physical NYC attendance, and Kavanah Space at 10 E 8th St. The current Meetup page agrees with the core details and explicitly sends RSVPs to [Luma](https://luma.com/supabase-grafana-nyc). The Luma page corroborates the venue, subject matter and 6 PM doors and offers a registration control; that does not establish price, remaining capacity or completed registration. The draft correctly keeps price, registration availability, hiring and named relevant participants unknown. No core factual discrepancy was found in this review; exact quote presence alone is not semantic verification.
+
+Its stored career score is 47.5/100: adjacent product fit 22.5/30, relevant people 0/25, networking 20/20, preferred domain 0/15, and practical access 5/10. This is a plausible technical-career networking opportunity rather than a confirmed PM or recruiting event. The adjacent-product classification is an interpretation requiring operator judgment. The domain bonus is conservatively missed because the model returned a compound developer-tools/observability label instead of the exact configured preferred-domain value. No score, evidence or database record was changed during review. Fixing domain vocabulary is a separate ranking-calibration task, not permission to add fuzzy matching or unsupported bonuses.
+
+The existing private publication preview has no blockers, but retains timezone-conversion, price, availability, hiring and participant warnings. The draft remains private pending explicit human approval; preview eligibility is not publication approval. This establishes one successful end-to-end career pilot, not broad source coverage, repeatable model quality, three independently verified new events, or live AICamp retrieval. Next: decide on publication after reviewing the RSVP route and warnings, then calibrate ranking and discovery diversity. Historical checkpoints below describe their original state and are not retroactively rewritten.
+
+Checkpoint documentation verification passed Prettier, `git diff --check`, and all 191 deterministic offline tests (6 unit, 156 ingestion, 17 dashboard, 12 review). This follow-up changes documentation only; builds, lint, TypeScript and optional PostgreSQL integration were not rerun. Review and backup comparison used read-only SQLite connections. No additional paid calls, database writes, publication, commits or pushes were performed during this follow-up.
+
 ## Start without spending
 
 ```bash
@@ -71,7 +85,7 @@ No new paid calls, real-event publication or existing database writes were made 
 
 Ingestion and recovery only create private drafts. Use the existing [review workflow](REVIEW-PUBLISH.md) before explicit publication. Changed event/source snapshots invalidate review tokens. Fixtures and published/archived events remain protected. A founder-profile refresh of an editable draft clears its career assessment to avoid stale career claims; it does not overwrite legacy score columns.
 
-Next acceptance step: separately approve a small three-search/three-candidate fresh-window career pilot, inspect its drafts and source pages, and calibrate ranking usefulness. Offline tests validate software boundaries, not live model quality. This increment does not add scheduling, automatic publication/registration, New Jersey, a browser inbox, a watchlist, or per-role views.
+The separately approved fresh-window pilot subsequently passed; see the current live checkpoint above for the draft review and remaining coverage/ranking limitations. Offline tests validate software boundaries, not live model quality. This increment does not add scheduling, automatic publication/registration, New Jersey, a browser inbox, a watchlist, or per-role views.
 
 ### AICamp listing checkpoint — October 1, 2026
 
