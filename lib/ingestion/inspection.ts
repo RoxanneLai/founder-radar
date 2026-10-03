@@ -6,6 +6,7 @@ import { readDatabaseSelection } from "../storage/config.ts";
 import { parseJson } from "../storage/sqlite.ts";
 import { safeValidationFailures } from "./candidate-validation.ts";
 import { safeCaptureDiagnostics } from "./source-page.ts";
+import { safeDiscoveryExclusions } from "./exclusions.ts";
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const uuid = z.string().uuid();
@@ -40,6 +41,7 @@ const resultSchema = z
     provider_diagnostics: z.array(z.unknown()).max(3),
     candidate_validation_failures: z.unknown().optional(),
     source_capture_diagnostics: z.unknown().optional(),
+    discovery_exclusions: z.unknown().optional(),
     sources: z.array(sourceSchema).max(50),
   })
   .strict();
@@ -91,6 +93,7 @@ export function inspectionStatement(runId: string): string {
       'provider_diagnostics', coalesce(r.metadata #> '{summary,provider_diagnostics}', '[]'::jsonb),
       'candidate_validation_failures', coalesce(r.metadata #> '{summary,candidate_validation_failures}', '[]'::jsonb),
       'source_capture_diagnostics', coalesce(r.metadata #> '{summary,source_capture_diagnostics}', '[]'::jsonb),
+      'discovery_exclusions', r.metadata #> '{summary,discovery_exclusions}',
       'sources', coalesce((
         select jsonb_agg(jsonb_build_object(
           'id', s.id,
@@ -231,6 +234,9 @@ export function executeSqliteInspection(runId: string, path: string): unknown {
         error_message: row.error_message,
       },
       provider_diagnostics: diagnostics,
+      discovery_exclusions: safeDiscoveryExclusions(
+        summary.discovery_exclusions,
+      ),
       source_capture_diagnostics: safeCaptureDiagnostics(
         summary.source_capture_diagnostics,
       ),
@@ -334,6 +340,9 @@ export async function runInspectionCli(
     mode: "read_only_ingestion_run",
     run: parsed.data.run,
     usage: usageSummary(parsed.data.provider_diagnostics),
+    discovery_exclusions: safeDiscoveryExclusions(
+      parsed.data.discovery_exclusions,
+    ),
     provider_diagnostics: parsed.data.provider_diagnostics,
     candidate_validation_failures: safeValidationFailures(
       parsed.data.candidate_validation_failures,

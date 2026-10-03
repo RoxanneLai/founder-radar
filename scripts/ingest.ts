@@ -16,6 +16,7 @@ import { validateLiveSearchWindow } from "../lib/ingestion/options.ts";
 import { careerSearchPlan, readCareerTarget } from "../lib/career/profile.ts";
 import { captureSourcePage } from "../lib/ingestion/source-capture.ts";
 import { SOURCE_CAPTURE_LIMITS } from "../lib/ingestion/source-page.ts";
+import { discoveryExclusionPlan } from "../lib/ingestion/exclusions.ts";
 import type {
   ReasoningEffort,
   RunSummary,
@@ -52,7 +53,8 @@ function printPlan(
           tools: false,
         },
         location: "New York City",
-        options,
+        options: { ...options, intent: options.intent ?? "refresh" },
+        discovery_exclusions: discoveryExclusionPlan(options),
         limits: {
           ...API_LIMITS,
           fetchToolCalls: 0,

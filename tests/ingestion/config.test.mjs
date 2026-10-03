@@ -122,6 +122,29 @@ test("checked-in model and effort defaults have independent CLI precedence witho
   assert.equal(JSON.parse(plan.stdout).evidence.kind, "source_page_text_v1");
   assert.equal(JSON.parse(plan.stdout).evidence.extraction_tools, false);
   assert.equal(JSON.parse(plan.stdout).limits.fetchToolCalls, 0);
+  assert.equal(JSON.parse(plan.stdout).options.intent, "refresh");
+  assert.equal(
+    JSON.parse(plan.stdout).discovery_exclusions.total_source_count,
+    null,
+  );
+  const expansionPlan = runCli(dir, ["--intent", "expand", "--limit", "3"], {
+    FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "invalid-backend-must-not-be-read",
+    SQLITE_DATABASE_PATH: dir + "/must-not-create.sqlite",
+  });
+  assert.equal(expansionPlan.status, 0, expansionPlan.stderr);
+  const expanded = JSON.parse(expansionPlan.stdout);
+  assert.equal(expanded.options.intent, "expand");
+  assert.equal(expanded.discovery_exclusions.intent, "expand");
+  assert.equal(expanded.discovery_exclusions.maximum_sources, 50);
+  assert.equal(expanded.discovery_exclusions.total_source_count, null);
+  assert.equal(expanded.discovery_exclusions.truncated, null);
+  assert.equal(expanded.writes, false);
+  assert.equal(expanded.paid_calls, false);
+  assert.equal(expanded.limits.searchToolCalls, 3);
+  await assert.rejects(readFile(dir + "/must-not-create.sqlite"), {
+    code: "ENOENT",
+  });
   assert.equal(
     JSON.parse(plan.stdout).evidence.source_capture.responseBytes,
     1048576,
@@ -169,6 +192,16 @@ test("checked-in model and effort defaults have independent CLI precedence witho
 
 test("help needs no config or key; paid approval and database validation precede key access", async () => {
   const dir = await directory();
+  const invalidIntent = runCli(dir, ["--live", "--intent", "unknown"], {
+    FOUNDER_RADAR_ALLOW_PAID_API: "1",
+    DATABASE_BACKEND: "invalid",
+  });
+  assert.equal(invalidIntent.status, 1);
+  assert.match(invalidIntent.stderr, /invalid_cli_arguments/);
+  assert.doesNotMatch(
+    invalidIntent.stderr,
+    /invalid_ingestion_config|invalid_database|OPENROUTER|unexpected network/,
+  );
   const help = runCli(dir, ["--help"]);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /OPENROUTER.key/);

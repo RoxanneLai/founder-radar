@@ -1256,6 +1256,7 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
           diagnostic,
         ) as Record<string, Json>),
         profile: options.profile ?? "founder",
+        intent: options.intent ?? "refresh",
         planned_queries:
           options.profile === "career" ? careerSearchPlan(options) : [],
         executed_queries: null,

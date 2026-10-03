@@ -1,5 +1,5 @@
 import "server-only";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import type { Json } from "../database.types.ts";
 import {
   jsonText,
@@ -348,6 +348,7 @@ export class SqliteIngestionRepository implements IngestionRepository {
           id,
           jsonText({
             ...options,
+            intent: options.intent ?? "refresh",
             model: this.model,
             effort: this.effort,
             repair_model: this.repairModel,
@@ -371,11 +372,41 @@ export class SqliteIngestionRepository implements IngestionRepository {
           .prepare(
             `select source_url from event_sources where event_id is null
              and last_attempt_error = 'source_page_cancelled' and last_attempt_at >= ?
-             order by last_attempt_at desc limit ?`,
+             order by last_attempt_at desc, id asc limit ?`,
           )
           .all(since, limit) as Array<{ source_url: string }>
       ).map((row) => row.source_url),
     );
+  }
+
+  async listLinkedSourceUrls(
+    from: string,
+    to: string,
+    limit: number,
+  ): Promise<string[]> {
+    try {
+      const database = new DatabaseSync(this.path, { readOnly: true });
+      try {
+        database.exec("pragma busy_timeout = 5000");
+        return (
+          database
+            .prepare(
+              `select s.source_url from event_sources s join events e on s.event_id = e.id
+           where e.is_fixture = 0 and julianday(e.starts_at) >= julianday(?)
+           and julianday(e.starts_at) < julianday(?) order by s.id asc limit ?`,
+            )
+            .all(
+              new Date(from).toISOString(),
+              new Date(to).toISOString(),
+              limit,
+            ) as Array<{ source_url: string }>
+        ).map((row) => row.source_url);
+      } finally {
+        database.close();
+      }
+    } catch {
+      throw new IngestionError("linked_source_exclusion_read_failed");
+    }
   }
 
   async checkpoint(runId: string, metadata: Json): Promise<void> {

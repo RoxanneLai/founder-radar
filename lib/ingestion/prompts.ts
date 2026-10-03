@@ -78,6 +78,7 @@ export function researchInput(
     starts_at_lt: options.to,
     max_candidates: options.limit,
     excluded_source_urls: excludedSourceUrls,
+    discovery_intent: options.intent ?? "refresh",
     ...(options.profile === "career"
       ? {
           profile: "career",

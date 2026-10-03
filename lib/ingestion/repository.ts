@@ -118,6 +118,7 @@ export class SupabaseIngestionRepository implements IngestionRepository {
         provider: "openrouter-web-search",
         search_parameters: {
           ...options,
+          intent: options.intent ?? "refresh",
           model: this.model,
           effort: this.effort,
           repair_model: this.repairModel,
@@ -142,9 +143,28 @@ export class SupabaseIngestionRepository implements IngestionRepository {
       .eq("last_attempt_error", "source_page_cancelled")
       .gte("last_attempt_at", since)
       .order("last_attempt_at", { ascending: false })
+      .order("id", { ascending: true })
       .limit(limit);
     if (error || data === null)
       throw new IngestionError("source_exclusion_read_failed");
+    return data.map((row) => row.source_url);
+  }
+
+  async listLinkedSourceUrls(
+    from: string,
+    to: string,
+    limit: number,
+  ): Promise<string[]> {
+    const { data, error } = await this.client
+      .from("event_sources")
+      .select("source_url,events!inner(starts_at,is_fixture)")
+      .eq("events.is_fixture", false)
+      .gte("events.starts_at", new Date(from).toISOString())
+      .lt("events.starts_at", new Date(to).toISOString())
+      .order("id", { ascending: true })
+      .limit(limit);
+    if (error || data === null)
+      throw new IngestionError("linked_source_exclusion_read_failed");
     return data.map((row) => row.source_url);
   }
 

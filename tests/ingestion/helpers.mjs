@@ -71,6 +71,21 @@ export function memoryRepository() {
         .slice(0, limit)
         .map(([sourceUrl]) => sourceUrl);
     },
+    async listLinkedSourceUrls(from, to, limit) {
+      return [...sources.entries()]
+        .filter(([, source]) => {
+          const event = events.get(source.event_id);
+          return (
+            event &&
+            !event.is_fixture &&
+            Date.parse(event.starts_at) >= Date.parse(from) &&
+            Date.parse(event.starts_at) < Date.parse(to)
+          );
+        })
+        .sort((left, right) => left[1].id.localeCompare(right[1].id))
+        .slice(0, limit)
+        .map(([sourceUrl]) => sourceUrl);
+    },
     async checkpoint(id, metadata) {
       runs.find((run) => run.id === id).metadata = structuredClone(metadata);
     },

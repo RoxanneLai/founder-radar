@@ -229,11 +229,15 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
     "google/test-model",
   );
   const excluded = "https://luma.com/cancelled-event";
-  const research = await provider.research(options, signal, [
-    excluded,
-    excluded + "?utm_source=duplicate",
-    "https://example.com/not-allowed",
-  ]);
+  const research = await provider.research(
+    { ...options, intent: "expand" },
+    signal,
+    [
+      excluded,
+      excluded + "?utm_source=duplicate",
+      "https://example.com/not-allowed",
+    ],
+  );
   assert.deepEqual(research.urls, [url]);
   assert.equal(research.metadata.usage.total_tokens, 30);
   assert.equal(research.metadata.usage.cost, 0.001);
@@ -241,6 +245,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
   assert.equal(research.metadata.requested_model, "google/test-model");
   assert.equal(research.metadata.requested_effort, "low");
   assert.equal(research.metadata.model, "openai/gpt-4.1");
+  assert.equal(research.metadata.intent, "expand");
   assert.equal(research.metadata.usage.reasoning_tokens, null);
   const extracted = await provider.extract(
     research,
@@ -282,6 +287,7 @@ test("OpenRouter sends bounded search and source-fetched structured extraction o
   assert.equal(search.tool_choice, "required");
   assert.equal(search.max_tokens, API_LIMITS.researchOutputTokens);
   const researchPayload = JSON.parse(search.messages[1].content);
+  assert.equal(researchPayload.discovery_intent, "expand");
   assert.deepEqual(researchPayload.excluded_source_urls, [excluded]);
   assert.equal(researchPayload.max_candidates, options.limit);
   assert.match(search.messages[0].content, /do not stop after the first/i);

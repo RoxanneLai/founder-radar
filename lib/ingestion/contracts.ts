@@ -156,6 +156,7 @@ export type SearchOptions = {
   limit: number;
   profile?: "founder" | "career";
   searches?: number;
+  intent?: "refresh" | "expand";
   career_target?: import("../career/profile.ts").CareerTarget;
 };
 
@@ -308,6 +309,7 @@ export type RunSummary = {
   provider_diagnostics?: ProviderDiagnostic[];
   candidate_validation_failures?: CandidateValidationFailure[];
   source_capture_diagnostics?: import("./source-page.ts").SourceCaptureDiagnostic[];
+  discovery_exclusions?: import("./exclusions.ts").DiscoveryExclusionSummary;
 };
 
 export type CandidateValidationFailure = {
@@ -321,6 +323,11 @@ export interface IngestionRepository {
   start(options: SearchOptions): Promise<string>;
   listRecentCancelledSourceUrls(
     since: string,
+    limit: number,
+  ): Promise<string[]>;
+  listLinkedSourceUrls(
+    from: string,
+    to: string,
     limit: number,
   ): Promise<string[]>;
   checkpoint(runId: string, metadata: Json): Promise<void>;

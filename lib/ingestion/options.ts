@@ -12,6 +12,7 @@ const optionsSchema = z
     limit: z.number().int().min(1).max(10),
     profile: z.enum(["founder", "career"]).optional(),
     searches: z.number().int().min(1).max(12).optional(),
+    intent: z.enum(["refresh", "expand"]).optional(),
     career_target: careerTargetSchema.optional(),
   })
   .strict();

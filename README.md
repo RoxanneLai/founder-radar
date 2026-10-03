@@ -47,6 +47,8 @@ Completed local runs can be inspected without paid requests or database writes u
 
 Historical ingestion quality can be measured offline with `npm run ingest:evaluate -- run`. The evaluator opens the selected SQLite database read-only, merges only allowlisted aggregate fields from ignored checkpoints, and writes an owner-only aggregate report under `codex-tmp/`. It does not read a key, contact a provider, modify the database, or publish events.
 
+Discovery defaults to refreshing eligible listings. Opt-in `--intent expand` steers research away from source identities already linked to non-fixture events in the chosen window, while retaining failed unlinked leads. Its bounded, cancelled-first exclusion list reports truncation and leaves all existing publication safeguards intact. Preview it free with `npm run ingest -- --intent expand --limit 3`; see [refresh versus expansion](docs/INGESTION.md#refresh-versus-expansion). Live expansion quality is not yet measured.
+
 Private saved provider responses can be replayed through the current adapter with `npm run ingest:replay -- run --manifest codex-tmp/capture-replay-manifest.json`. Replay is SQLite-only and offline: it reads no credentials, makes no paid calls, and writes neither database rows nor publication changes. Its ignored manifest distinguishes original failure captures from later diagnostic captures.
 
 ## Run the web application

@@ -2,7 +2,7 @@
 
 ## Decision summary — October 1, 2026
 
-The next useful change is an explicit **expansion mode**, separate from the existing refresh behavior. The current pipeline does not exclude already-known events: it excludes recently cancelled, unlinked sources only. Repeated eligible FINOS and Meetup results are therefore permitted, not evidence that URL deduplication is broken. Avoid increasing paid search budgets or adding another parsing agent to solve this particular problem.
+The next useful change identified by this audit was an explicit **expansion mode**, separate from existing refresh behavior. The audited pipeline did not exclude already-known events: it excluded recently cancelled, unlinked sources only. Repeated eligible FINOS and Meetup results were therefore permitted, not evidence that URL deduplication was broken. Avoid increasing paid search budgets or adding another parsing agent to solve this particular problem. The approved implementation now supports opt-in `--intent expand`; see the [implementation guide](INGESTION.md#refresh-versus-expansion). The historical measurements below remain unchanged and do not measure the new mode.
 
 This is a read-only audit of the local imported SQLite database at code revision `a5cf35b`. No provider or source requests, credential reads, database changes, publication, run cleanup, commits or pushes were made. Detailed projected counters are saved owner-only under ignored `codex-tmp/`; raw research, quotes, prompts, headers and reasoning traces are not included in the audit export. This document contains aggregated findings, not private source snapshots.
 
@@ -46,14 +46,14 @@ Three early runs used historical report/hosted-fetch evidence. Four later runs u
 
 The earlier [career checkpoint](CAREER-EVENTS.md#first-career-pilot--september-29-2026) independently flagged the Datadog listing's past 2025 date. That is a historical observation, not a new retrieval in this audit. The Luma hosted-fetch failure cannot establish current local-capture availability; neither unlinked lead should be silently reclassified or permanently suppressed solely because of an old failure.
 
-## Code findings
+## Code findings in the audited implementation, before expansion
 
 1. [The orchestrator](../lib/ingestion/run.ts) requests up to 50 cancelled-source exclusions from the preceding 90 days, passes them to research, and filters returned selections again locally. [SQLite](../lib/ingestion/sqlite-repository.ts) and [Supabase](../lib/ingestion/repository.ts) use equivalent predicates: unlinked source, `source_page_cancelled`, and recent last attempt. Successful, published, draft-linked, past or merely previously seen listings are not part of this exclusion query.
 2. [Identity selection](../lib/ingestion/sources.ts) removes aliases, duplicates and excluded identities before applying the limit, using canonical URLs and platform external IDs. [Transactional storage](../lib/ingestion/sqlite-repository.ts) upserts existing sources and protects published/archived/fixture events. Across-run reuse is refresh, not insertion of duplicate source rows. Semantic cross-platform event matching remains out of scope.
 3. [The provider](../lib/ingestion/openrouter-provider.ts) accepts supported, cited listing URLs actually present in the research report. Numbered event sections retain the first supported cited identity per section. This deliberately avoids treating secondary RSVP/background links as separate events; it is not evidence of lost independent events in these runs. Raw provider search-result lists are not retained, so the pre-selection funnel cannot be reconstructed precisely.
 4. Planned query families and the search budget are passed to model-directed research. There is no per-community crawler or observed family-coverage guarantee. The existing inspector/evaluator already provide safe run inspection; a second broad reporting framework is unnecessary for this finding.
 
-## Recommended next implementation, requiring separate approval
+## Recommended implementation, subsequently approved
 
 Add a narrowly scoped, opt-in expansion intent while leaving existing refresh behavior as the default:
 
@@ -64,6 +64,10 @@ Add a narrowly scoped, opt-in expansion intent while leaving existing refresh be
 - Test synthetic linked drafts, published/fixture records, window boundaries, alias/external-ID exclusions, failed unlinked leads, bounded/truncated sets, database-read failure before paid research, and free plans. Do not introduce tests dependent on live model quality.
 
 Only after offline verification should a separately approved, one-attempt three-search/three-candidate expansion pilot test whether retained coverage increases. Zero new candidates is a valid result, not permission to retry, enlarge the budget, or weaken validation. Consider query rotation or verified new URL families only after measuring this smaller change.
+
+The implementation follows that scope: explicit refresh/expand intent, bounded selection in SQLite and Supabase, cancelled-first merging, private URL checkpoints, safe counts/truncation, and a free plan with unknown actual counts. It does not modify the audited database, run a live pilot, migrate data, or publish drafts. The next acceptance step remains a separately approved live expansion attempt.
+
+Offline expansion verification on October 2 passed formatting, lint, TypeScript, all 206 normal tests (including 13 expansion tests), and the Git whitespace check. A credential-free source copy under ignored `codex-tmp/` passed the production build and all 13 compiled-page/runtime checks. New cases cover CLI safety, both profiles, aliases/external IDs, failed unlinked leads, cancellation, exact window boundaries, fixture/published/archived records, the 50/51-row boundary, read-only SQLite selection, safe inspection, and failures before paid research. Supabase request shape and safe failures were exercised using its real SDK with offline HTTP responses; no running PostgreSQL/PostgREST integration or paid expansion was exercised.
 
 ## Verification and limitations
 

@@ -32,14 +32,8 @@ import {
   captureFailureDetails,
   capturedPageDiagnostic,
 } from "./source-capture.ts";
-import {
-  MAX_RESEARCH_EXCLUSIONS,
-  selectSources,
-  sourceIdentity,
-} from "./sources.ts";
-
-const CANCELLED_SOURCE_EXCLUSION_DAYS = 90;
-const DAY_MS = 86400000;
+import { selectSources, sourceIdentity } from "./sources.ts";
+import { collectDiscoveryExclusions } from "./exclusions.ts";
 
 type Dependencies = {
   provider: DiscoveryProvider;
@@ -389,18 +383,20 @@ async function collectAndPersist(
   deps: Dependencies,
 ): Promise<void> {
   const exclusionReference = (deps.now ?? (() => new Date()))();
-  const exclusionSince = new Date(
-    exclusionReference.getTime() - CANCELLED_SOURCE_EXCLUSION_DAYS * DAY_MS,
-  ).toISOString();
-  const excludedSourceUrls = selectSources(
-    await deps.repository.listRecentCancelledSourceUrls(
-      exclusionSince,
-      MAX_RESEARCH_EXCLUSIONS,
-    ),
-    MAX_RESEARCH_EXCLUSIONS,
-  ).map((source) => source.source_url);
+  const exclusions = await collectDiscoveryExclusions(
+    context.options,
+    deps.repository,
+    exclusionReference,
+  );
+  checkCancellation(deps.signal);
+  const excludedSourceUrls = exclusions.urls;
+  context.summary.discovery_exclusions = exclusions.summary;
+  context.metadata.discovery_exclusions = { ...exclusions.summary };
   context.metadata.excluded_source_count = excludedSourceUrls.length;
   context.metadata.excluded_source_urls = excludedSourceUrls;
+  context.metadata.summary = { ...context.summary };
+  await deps.repository.checkpoint(context.summary.run_id, context.metadata);
+  checkCancellation(deps.signal);
   const research = await deps.provider.research(
     context.options,
     deps.signal,
@@ -464,6 +460,7 @@ export async function runIngestion(
     metadata: {
       evidence_kind: "model_web_search_report_with_source_fetch",
       profile: options.profile ?? "founder",
+      intent: options.intent ?? "refresh",
       profile_version: options.career_target?.version ?? "founder-v1",
       planned_queries:
         options.profile === "career" ? careerSearchPlan(options) : [],

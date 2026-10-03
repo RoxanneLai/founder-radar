@@ -11,6 +11,9 @@ export const INGEST_HELP = [
   "                 [--model vendor/model-id] [--effort level] [--config path/to/config.json]",
   "                 [--repair-model vendor/model-id] [--repair-effort level]",
   "                 [--profile founder|career] [--searches 1..12] [--career-config path]",
+  "                 [--intent refresh|expand]",
+  "Default intent: refresh. Expand excludes up to 50 known/cancelled source identities, prioritizing cancelled sources.",
+  "Expand targets new drafts in the chosen window; failed unlinked leads remain eligible. No extra searches or retries.",
   "Default profile: career, with a 30-day window. Use --profile founder for the legacy 14-day startup search.",
   "Both default to 3 hosted searches. Searches are a budget, not a draft guarantee.",
   "--career-config overrides config/career.json for career discovery, including the default profile.",
@@ -49,6 +52,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
         config: { type: "string" },
         profile: { type: "string" },
         searches: { type: "string" },
+        intent: { type: "string" },
         "career-config": { type: "string" },
         live: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -70,6 +74,11 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
   )
     throw new IngestionError("invalid_cli_arguments");
   const profile = (values.profile ?? "career") as "career" | "founder";
+  if (
+    values.intent !== undefined &&
+    !["refresh", "expand"].includes(values.intent)
+  )
+    throw new IngestionError("invalid_cli_arguments");
   if (
     values["career-config"] === "" ||
     (values["career-config"] !== undefined && profile !== "career")
@@ -112,6 +121,7 @@ export function parseIngestionArgs(args: string[], now = new Date()) {
     to: values.to ?? defaults.to,
     limit: values.limit === undefined ? defaults.limit : Number(values.limit),
     profile,
+    ...(values.intent ? { intent: values.intent } : {}),
     ...(values.searches ? { searches: Number(values.searches) } : {}),
   });
   return {
