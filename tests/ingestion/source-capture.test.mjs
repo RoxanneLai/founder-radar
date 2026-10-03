@@ -121,6 +121,48 @@ function careerCandidate(text) {
   return c;
 }
 
+test("captured founder and career runs preserve escaped model quotes with private normalization provenance", async () => {
+  const exact =
+    'eventAttendanceMode":"https://schema.org/OfflineEventAttendanceMode';
+  const text = report + " Product discovery discussion.\n" + exact + '"';
+  for (const profile of ["founder", "career"]) {
+    const c = profile === "career" ? careerCandidate(text) : candidate();
+    c.event_format = fact("in-person", JSON.stringify(exact).slice(1, -1));
+    const original = structuredClone(c);
+    const repo = memoryRepository();
+    let calls = 0;
+    const provider = new OpenRouterSearchProvider(
+      "fake-key",
+      "vendor/offline",
+      "medium",
+      async () => {
+        calls += 1;
+        return router(JSON.stringify({ candidates: [c] }));
+      },
+    );
+    provider.research = async () => ({ report, urls: [url], metadata: {} });
+    const summary = await runIngestion(
+      profile === "career" ? careerOptions : options,
+      {
+        provider,
+        repository: repo,
+        signal,
+        now,
+        captureSource: async () => page(text),
+      },
+    );
+    assert.equal(summary.status, "succeeded");
+    assert.equal(summary.events_written, 1);
+    assert.equal(calls, 1);
+    const saved = repo.sources.get(url);
+    assert.deepEqual(saved.raw_payload.candidate, original);
+    assert.deepEqual(saved.raw_payload.normalization_notes, [
+      "event_format_quote_json_escape_normalized",
+    ]);
+    assert.equal(saved.content_text, text);
+  }
+});
+
 test("gateway format enums are canonical for both profiles while runtime inputs retain historical compatibility", () => {
   for (const profile of ["founder", "career"]) {
     const c =

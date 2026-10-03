@@ -94,6 +94,168 @@ test("format aliases cannot bypass absent quotes, rejection verdicts, eligibilit
   assert.throws(() => normalize(c), { code: "invalid_candidate" });
 });
 
+test("one JSON escape layer on the exact attendance-mode fragment is grounded without mutating model evidence", () => {
+  for (const [value, mode, expected] of [
+    ["in-person", "OfflineEventAttendanceMode", "in-person"],
+    ["in_person", "OfflineEventAttendanceMode", "in-person"],
+    ["hybrid", "MixedEventAttendanceMode", "hybrid"],
+  ]) {
+    const quote = `eventAttendanceMode":"https://schema.org/${mode}`;
+    const c = candidate();
+    c.event_format = fact(value, JSON.stringify(quote).slice(1, -1));
+    const original = structuredClone(c);
+    const event = normalizeCandidate(
+      c,
+      sourceIdentity(url),
+      report + "\n" + quote + '"',
+      options,
+      "2026-09-01T12:00:00Z",
+    );
+    assert.equal(event.event_format, expected);
+    assert.ok(
+      event.normalization_notes.includes(
+        "event_format_quote_json_escape_normalized",
+      ),
+    );
+    assert.deepEqual(c, original);
+    c.event_format.quote = quote;
+    const exact = normalizeCandidate(
+      c,
+      sourceIdentity(url),
+      report + "\n" + quote + '"',
+      options,
+      "2026-09-01T12:00:00Z",
+    );
+    assert.ok(
+      !exact.normalization_notes?.includes(
+        "event_format_quote_json_escape_normalized",
+      ),
+    );
+  }
+});
+
+test("attendance-mode quote compatibility rejects other escapes, extra layers, mismatched modes and absent evidence", () => {
+  const exact =
+    'eventAttendanceMode":"https://schema.org/OfflineEventAttendanceMode';
+  const escaped = JSON.stringify(exact).slice(1, -1);
+  const evidence = report + "\n" + exact + '"';
+  for (const quote of [
+    JSON.stringify(escaped).slice(1, -1),
+    escaped.replace("https://", "https:\\/\\/"),
+    escaped.replace("eventAttendanceMode", "\\u0065ventAttendanceMode"),
+    escaped + " extra",
+    'eventAttendanceMode\\": "https://schema.org/OfflineEventAttendanceMode',
+    JSON.stringify(
+      'eventAttendanceMode":"https://schema.org/OnlineEventAttendanceMode',
+    ).slice(1, -1),
+    JSON.stringify("in-person event").slice(1, -1),
+    "x".repeat(4001),
+    null,
+  ]) {
+    const c = candidate();
+    c.event_format = fact("in-person", quote);
+    assert.throws(
+      () =>
+        normalizeCandidate(
+          c,
+          sourceIdentity(url),
+          evidence,
+          options,
+          "2026-09-01T12:00:00Z",
+        ),
+      { code: "incomplete_event" },
+    );
+  }
+  const c = candidate();
+  c.event_format = fact("in-person", escaped);
+  assert.throws(() => normalize(c), { code: "incomplete_event" });
+  for (const suffix of ["", 'InventedMode"']) {
+    assert.throws(
+      () =>
+        normalizeCandidate(
+          c,
+          sourceIdentity(url),
+          report + "\n" + exact + suffix,
+          options,
+          "2026-09-01T12:00:00Z",
+        ),
+      { code: "incomplete_event" },
+    );
+  }
+  c.title = fact("Founder Test", JSON.stringify('"Founder Test"').slice(1, -1));
+  assert.throws(
+    () =>
+      normalizeCandidate(
+        c,
+        sourceIdentity(url),
+        evidence + '\n"Founder Test"',
+        options,
+        "2026-09-01T12:00:00Z",
+      ),
+    { code: "incomplete_event" },
+  );
+});
+
+test("escaped attendance-mode quotes never bypass virtual, location, date, rejection or relevance gates", () => {
+  const exact =
+    'eventAttendanceMode":"https://schema.org/OfflineEventAttendanceMode';
+  const evidence = report + "\n" + exact + '"';
+  const c = candidate();
+  c.event_format = fact("in-person", JSON.stringify(exact).slice(1, -1));
+  const check = (
+    input = c,
+    window = options,
+    observedAt = "2026-09-01T12:00:00Z",
+  ) =>
+    normalizeCandidate(
+      input,
+      sourceIdentity(url),
+      evidence,
+      window,
+      observedAt,
+    );
+  const virtual = candidate();
+  const online =
+    'eventAttendanceMode":"https://schema.org/OnlineEventAttendanceMode';
+  virtual.event_format = fact("virtual", JSON.stringify(online).slice(1, -1));
+  assert.throws(
+    () =>
+      normalizeCandidate(
+        virtual,
+        sourceIdentity(url),
+        report + "\n" + online + '"',
+        options,
+        "2026-09-01T12:00:00Z",
+      ),
+    { code: "unsupported_event_format" },
+  );
+  assert.throws(() => check({ ...c, city: fact("Boston") }), {
+    code: "outside_search_location",
+  });
+  assert.throws(() => check(c, { ...options, from: "2026-09-07T00:00:00Z" }), {
+    code: "outside_search_window",
+  });
+  assert.throws(() => check(c, options, "2026-09-05T22:01:00Z"), {
+    code: "event_already_started",
+  });
+  assert.throws(
+    () =>
+      check({ ...c, relevant_to_founders: fact(true, "Unstated relevance") }),
+    { code: "irrelevant_event" },
+  );
+  assert.throws(
+    () =>
+      check({
+        ...c,
+        source_verification: { status: "rejected", reason: "source_page_past" },
+      }),
+    { code: "invalid_candidate" },
+  );
+  assert.throws(() => check(rejectedCandidate(url, "source_page_past")), {
+    code: "source_page_past",
+  });
+});
+
 test("canonicalizes listing URLs without merging meaningful query parameters", () => {
   assert.equal(
     sourceIdentity("https://www.lu.ma/founder-test/?utm_source=x#details")

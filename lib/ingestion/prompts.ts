@@ -1,5 +1,6 @@
 import type { Research, SearchOptions, SourceIdentity } from "./contracts.ts";
 import { careerSearchPlan } from "../career/profile.ts";
+import { DISCOVERY_SELECTION_INSTRUCTIONS } from "./research-selection.ts";
 
 export const RESEARCH_INSTRUCTIONS = [
   "Research public NYC in-person or hybrid startup founder/investor events.",
@@ -16,6 +17,7 @@ export const RESEARCH_INSTRUCTIONS = [
   "Separate listings clearly and keep each listing's evidence next to its URL.",
   "Use a numbered level-three Markdown heading for each event and exactly one primary cited individual listing URL in that section.",
   "Do not cite a second platform for the same event or unrelated background pages.",
+  DISCOVERY_SELECTION_INSTRUCTIONS,
 ].join(" ");
 
 function extractionInstructions(captured: boolean): string {
@@ -48,6 +50,7 @@ function extractionInstructions(captured: boolean): string {
         : "report quote confirmed by the listing.") +
       " A registration button alone does not prove availability; do not invent a quote. The application maps null/null to its display status unknown.",
     "event_format values are exactly in-person, hybrid, virtual, or null; use the hyphenated spelling in-person, never in_person. Unknown format stays null/null.",
+    "When quoting JSON source text, escape quotation marks only once for valid output JSON; after JSON decoding, the quote must match the captured source literally, with no extra backslashes.",
     "price_amount_cents is an integer in minor units; currency_code is an explicit ISO code. Do not interpret '$' alone as USD.",
     "Do not produce relevance scores or recommendations.",
   ].join(" ");

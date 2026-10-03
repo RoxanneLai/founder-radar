@@ -56,6 +56,7 @@ import { parseStructuredContent } from "./structured-output.ts";
 import { sourceRetrievalUrl, validateCapturedPages } from "./source-page.ts";
 import { CAPTURED_EXTRACTION_INSTRUCTIONS } from "./prompts.ts";
 import { CAPTURED_CAREER_EXTRACTION_INSTRUCTIONS } from "../career/prompts.ts";
+import { researchSelection } from "./research-selection.ts";
 
 export const API_LIMITS = {
   calls: 3,
@@ -421,7 +422,10 @@ function canonicalNestedCandidate(
 }
 
 /** Intersect trusted annotations with canonical listing URLs actually named in the report. */
-function reportedSourceUrls(response: RouterResponse): string[] {
+function reportedSourceUrls(
+  response: RouterResponse,
+  selected: string[],
+): string[] {
   const message = response.choices[0].message;
   const annotated = new Set(
     (message.annotations ?? [])
@@ -445,16 +449,8 @@ function reportedSourceUrls(response: RouterResponse): string[] {
     }
     return urls;
   };
-  const sections = (message.content ?? "")
-    .split(/^###\s+\d+[.)]\s+/gm)
-    .slice(1);
-  if (sections.length) {
-    const primary = sections.flatMap((section) => collect(section).slice(0, 1));
-    if (primary.length) return [...new Set(primary)];
-  }
-  const selected = new Set<string>();
-  for (const url of collect(message.content ?? "")) selected.add(url);
-  return [...selected];
+  const cited = new Set(collect(message.content ?? ""));
+  return selected.filter((url) => cited.has(url));
 }
 
 type SourceCoverage = {
@@ -1227,7 +1223,8 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
     if (!report?.trim() || report.length > API_LIMITS.reportCharacters)
       throw new IngestionError("invalid_research_report");
     const diagnostic = this.verifyResearchSearch(response, this.searchBudget);
-    const urls = reportedSourceUrls(response);
+    const selection = researchSelection(report, options.limit);
+    const urls = reportedSourceUrls(response, selection.urls);
     const retrievalUrls: Record<string, string> = {};
     for (const match of report.matchAll(/https:\/\/[^\s)\]}>'"]+/g)) {
       const raw = match[0].replace(/[.,;:!?]+$/, "");
@@ -1260,6 +1257,9 @@ export class OpenRouterSearchProvider implements DiscoveryProvider {
         planned_queries:
           options.profile === "career" ? careerSearchPlan(options) : [],
         executed_queries: null,
+        selection_format: selection.format,
+        rejected_listing_count: selection.rejectedCount,
+        verification_lead_count: selection.verificationCount,
       },
     };
   }

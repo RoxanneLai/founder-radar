@@ -29,7 +29,10 @@ function response(text, searches = 0, fetches = null) {
         finish_reason: "stop",
         message: {
           role: "assistant",
-          content: text,
+          content:
+            searches && text.startsWith(report)
+              ? `### 1. Founder Test\n${text}`
+              : text,
           annotations: searches
             ? [
                 {
@@ -1387,7 +1390,7 @@ test("only cited listing URLs named in the report are selected, in report order"
   const second = "https://luma.com/second-event";
   const background = "https://meetup.com/group/events/123";
   const unannotated = "https://luma.com/unannotated";
-  const text = `Second: ${second}. First: ${url}. Unsupported: ${unannotated}.`;
+  const text = `### 1. Second\n${second}\n### 2. First\n${url}\n### 3. Unsupported\n${unannotated}`;
   const value = response(text, 1);
   value.choices[0].message.annotations = [
     { type: "url_citation", url_citation: { url: background } },
@@ -1718,7 +1721,10 @@ test("bounded provider citations safely bridge a missing search counter", async 
       "bounded_citations",
     );
     assert.equal(diagnostic.citation_count, 1);
-    assert.equal(diagnostic.content_characters, report.length);
+    assert.equal(
+      diagnostic.content_characters,
+      value.choices[0].message.content.length,
+    );
     assert.equal(diagnostic.usage.cost, missing === "usage" ? null : 0.001);
     assert.equal(
       diagnostic.usage.input_tokens,
@@ -1733,7 +1739,10 @@ test("bounded provider citations safely bridge a missing search counter", async 
       summary.provider_diagnostics,
     );
     assert.ok(!JSON.stringify([summary, progress]).includes(report));
-    assert.equal(repository.runs[0].metadata.research_report, report);
+    assert.equal(
+      repository.runs[0].metadata.research_report,
+      value.choices[0].message.content,
+    );
     assert.ok(!JSON.stringify(summary).includes(key));
   }
 });

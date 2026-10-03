@@ -638,7 +638,7 @@ test("offline provider sends complete career schema in prompts and bounded searc
           finish_reason: "stop",
           message: {
             role: "assistant",
-            content: evidence,
+            content: `### 1. Founder Test\n${evidence}`,
             annotations: [{ type: "url_citation", url_citation: { url } }],
           },
         },

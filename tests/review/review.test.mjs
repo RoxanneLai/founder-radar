@@ -65,6 +65,43 @@ test("format spelling provenance stays private and is disclosed in operator revi
   );
 });
 
+test("attendance-mode escape provenance is disclosed privately without exposing original quotes", () => {
+  const report = buildReviewReport(
+    snapshot(
+      {},
+      {
+        raw_payload: {
+          normalization_notes: ["event_format_quote_json_escape_normalized"],
+          candidate: {
+            event_format: {
+              value: "in-person",
+              quote: "PRIVATE ESCAPED ATTENDANCE",
+            },
+          },
+        },
+      },
+    ),
+    now,
+  );
+  assert.deepEqual(report.blockers, []);
+  assert.match(
+    report.warnings.join(" "),
+    /extra JSON escape layer.*exact source text/,
+  );
+  assert.match(
+    report.warnings.join(" "),
+    /check physical attendance before approval/,
+  );
+  assert.deepEqual(
+    report.publicPreview,
+    buildReviewReport(snapshot(), now).publicPreview,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(report.publicPreview),
+    /normalization_notes|PRIVATE ESCAPED/,
+  );
+});
+
 test("Eastern label provenance is disclosed privately without changing public cards", () => {
   const report = buildReviewReport(
     snapshot(

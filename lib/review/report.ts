@@ -77,6 +77,18 @@ export function buildReviewReport(input: unknown, now = new Date()) {
         "The model's in_person label was normalized to in-person. The original quote is unchanged; check physical attendance before approval.",
       );
     if (
+      payload &&
+      typeof payload === "object" &&
+      "normalization_notes" in payload &&
+      Array.isArray(payload.normalization_notes) &&
+      payload.normalization_notes.includes(
+        "event_format_quote_json_escape_normalized",
+      )
+    )
+      warnings.push(
+        "One extra JSON escape layer in the attendance-mode quote was matched to exact source text. Original model evidence is unchanged; check physical attendance before approval.",
+      );
+    if (
       !source.content_text?.trim() ||
       !source.fetched_at ||
       source.last_attempt_error

@@ -1,3 +1,5 @@
+import { DISCOVERY_SELECTION_INSTRUCTIONS } from "../ingestion/research-selection.ts";
+
 export const CAREER_RESEARCH_INSTRUCTIONS = [
   "Find public future NYC physically attended professional events relevant to the supplied target career profile and exact date window.",
   "Use interleaved planned search families within the supplied search budget. Seek distinct individual listings up to the separate candidate cap. Coverage is not exhaustive.",
@@ -14,6 +16,7 @@ export const CAREER_RESEARCH_INSTRUCTIONS = [
   "Keep unknown prices, currency, availability, hiring, prerequisites and venue unknown. Free drinks and generic RSVP buttons do not prove free entry or seats.",
   "Use the year explicitly stated for the event date, never the current year, search window, URL, copyright footer or a recurring-event assumption. Exclude an explicitly past listing even if its month/day matches the window; omit date-only or year-uncertain listings.",
   "Use numbered level-three Markdown headings with one primary cited individual listing URL per event; put exact date/year/clock time/location and supported evidence beside it. Do not infer city from query location.",
+  DISCOVERY_SELECTION_INSTRUCTIONS,
 ].join(" ");
 
 function extractionInstructions(captured: boolean): string {
@@ -31,6 +34,7 @@ function extractionInstructions(captured: boolean): string {
       : "Every supported field uses value/quote. Quotes are exact contiguous substrings of the supplied report, confirmed by the fetched page and scoped to this listing. No explanatory prose, combined fragments or cross-event evidence.",
     "Unknown facts are null/null, unknown arrays empty. Keep unstated timezone null/null; use local ISO date/clock time when unstated or supported offset/Z. The application records its NYC default separately. Never invent date/time/city or a timezone quotation.",
     "event_format values are exactly in-person, hybrid, virtual, or null; use the hyphenated spelling in-person, never in_person. Unknown format stays null/null. Virtual-only sources require fact-free rejection.",
+    "When quoting JSON source text, escape quotation marks only once for valid output JSON; after JSON decoding, the quote must match the captured source literally, with no extra backslashes.",
     "Explicit incompatible practitioner-only PM, employee/student-only, invitation or membership restrictions mean ineligible. Approval/waitlist alone are not exclusions; senior speakers do not imply senior-only attendees.",
     "Product relevance and fallback technical project/program delivery relevance are direct/adjacent/none/unknown. Preferred domains are preferences, not exclusions. Keep relevant tech talks, disclosing coding/cloud prerequisites.",
     "Advertised people need names, companies, roles and scheduled participation. Speaker/host/attendee differs from sponsor or venue. Logos do not establish employee access.",

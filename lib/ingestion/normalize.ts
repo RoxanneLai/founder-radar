@@ -31,10 +31,43 @@ function text(
   return value && value.length <= maxLength ? value : null;
 }
 
-/** Normalize only the observed spelling alias, after exact quote grounding. */
-function eventFormat(fact: Fact<string>, evidence: string): string | null {
-  const value = text(fact, evidence);
-  return value === "in_person" ? "in-person" : value;
+/** Resolve only one extra JSON escape layer on the observed attendance-mode quote. */
+function eventFormat(
+  fact: Fact<string>,
+  evidence: string,
+): {
+  value: string | null;
+  quoteNormalized: boolean;
+  labelNormalized: boolean;
+} {
+  let value = text(fact, evidence);
+  let quoteNormalized = false;
+  if (value === null && fact.quote && fact.quote.length <= 4000) {
+    const mode =
+      fact.value === "in-person" || fact.value === "in_person"
+        ? "OfflineEventAttendanceMode"
+        : fact.value === "hybrid"
+          ? "MixedEventAttendanceMode"
+          : fact.value === "virtual"
+            ? "OnlineEventAttendanceMode"
+            : null;
+    const exact = mode
+      ? `eventAttendanceMode":"https://schema.org/${mode}`
+      : null;
+    if (
+      exact &&
+      fact.quote === JSON.stringify(exact).slice(1, -1) &&
+      evidence.includes(exact + '"')
+    ) {
+      value = fact.value;
+      quoteNormalized = true;
+    }
+  }
+  return {
+    value: value === "in_person" ? "in-person" : value,
+    quoteNormalized,
+    labelNormalized: value === "in_person",
+  };
 }
 
 function hasCorrectOffset(value: string, timeZone: string): boolean {
@@ -106,7 +139,8 @@ export function normalizeCandidate(
   const city = text(c.city, report);
   const region = text(c.region, report);
   const country = text(c.country_code, report);
-  const format = eventFormat(c.event_format, report);
+  const formatEvidence = eventFormat(c.event_format, report);
+  const format = formatEvidence.value;
   if (!title || !startText || !city || !region || !country || !format) {
     throw new IngestionError("incomplete_event");
   }
@@ -176,8 +210,11 @@ export function normalizeCandidate(
     ...(statedTimeZone && statedTimeZone !== timeZone
       ? ["timezone_normalized_eastern"]
       : []),
-    ...(text(c.event_format, report) === "in_person"
+    ...(formatEvidence.labelNormalized
       ? ["event_format_normalized_in_person"]
+      : []),
+    ...(formatEvidence.quoteNormalized
+      ? ["event_format_quote_json_escape_normalized"]
       : []),
   ];
   const event: EventDraft = {
